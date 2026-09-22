@@ -1,0 +1,10 @@
+packages:
+  - apps/*
+  - packages/*
+
+# Dependency install scripts. Denied unless a tool needs them.
+allowBuilds:
+  sharp: false
+  unrs-resolver: false
+  esbuild: false
+  "@depot/cli": false

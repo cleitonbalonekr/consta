@@ -1,0 +1,17 @@
+{
+  "name": "@consta/adapters",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc",
+    "lint": "eslint src"
+  },
+  "dependencies": {
+    "@consta/core": "workspace:*",
+    "@trigger.dev/sdk": "^4.7.2"
+  }
+}

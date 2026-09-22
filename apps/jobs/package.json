@@ -1,0 +1,21 @@
+{
+  "name": "@consta/jobs",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "trigger dev",
+    "deploy": "trigger deploy",
+    "typecheck": "tsc",
+    "lint": "eslint src"
+  },
+  "dependencies": {
+    "@consta/adapters": "workspace:*",
+    "@consta/core": "workspace:*",
+    "@trigger.dev/sdk": "^4.7.2"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.4",
+    "trigger.dev": "^4.7.2"
+  }
+}
