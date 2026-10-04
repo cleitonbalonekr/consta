@@ -1,12 +1,143 @@
 @import "tailwindcss";
 
+/*
+ * Design tokens. Components use the semantic names (bg-surface, text-muted,
+ * border-line, bg-accent...) and never raw palette colors, so both themes come
+ * from this one file. A script in the root layout sets data-theme on <html>
+ * before the first paint: the lawyer's choice, or else the system's.
+ */
+
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
+:root {
+  color-scheme: light;
+  --background: #f6f6f8;
+  --surface: #ffffff;
+  --surface-muted: #f1f1f4;
+  --surface-raised: #ffffff;
+  --line: #e4e4e9;
+  --line-strong: #d4d4dc;
+  --foreground: #16161d;
+  --muted: #55556a;
+  --subtle: #8e8ea3;
+  --accent: #5046e5;
+  --accent-hover: #4338ca;
+  --accent-foreground: #ffffff;
+  --accent-soft: #eef0ff;
+  --accent-text: #3c33b8;
+  --success: #0f8a5f;
+  --success-soft: #e7f7ef;
+  --warning: #a15c07;
+  --warning-soft: #fff6e5;
+  --danger: #c4314b;
+  --danger-soft: #fdecef;
+  --mark: rgb(250 204 21 / 0.42);
+  --mark-ring: rgb(202 138 4 / 0.55);
+  --glow: rgb(80 70 229 / 0.07);
+  --shadow: 0 1px 2px rgb(16 16 30 / 0.04), 0 4px 16px rgb(16 16 30 / 0.04);
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --background: #0a0a0f;
+  --surface: #121218;
+  --surface-muted: #1a1a22;
+  --surface-raised: #1c1c25;
+  --line: #26262f;
+  --line-strong: #34343f;
+  --foreground: #ededf2;
+  --muted: #a3a3b5;
+  --subtle: #6f6f82;
+  --accent: #7c74ff;
+  --accent-hover: #958eff;
+  --accent-foreground: #ffffff;
+  --accent-soft: rgb(124 116 255 / 0.14);
+  --accent-text: #b7b2ff;
+  --success: #4ade9b;
+  --success-soft: rgb(74 222 155 / 0.12);
+  --warning: #fbbf4d;
+  --warning-soft: rgb(251 191 77 / 0.12);
+  --danger: #ff6b84;
+  --danger-soft: rgb(255 107 132 / 0.12);
+  --mark: rgb(250 204 21 / 0.4);
+  --mark-ring: rgb(250 204 21 / 0.7);
+  --glow: rgb(124 116 255 / 0.13);
+  --shadow: 0 1px 2px rgb(0 0 0 / 0.3), 0 8px 24px rgb(0 0 0 / 0.25);
+}
+
 @theme inline {
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
+  --color-background: var(--background);
+  --color-surface: var(--surface);
+  --color-surface-muted: var(--surface-muted);
+  --color-surface-raised: var(--surface-raised);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-foreground: var(--foreground);
+  --color-muted: var(--muted);
+  --color-subtle: var(--subtle);
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent-soft: var(--accent-soft);
+  --color-accent-text: var(--accent-text);
+  --color-success: var(--success);
+  --color-success-soft: var(--success-soft);
+  --color-warning: var(--warning);
+  --color-warning-soft: var(--warning-soft);
+  --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-soft);
+  --color-mark: var(--mark);
+  --color-mark-ring: var(--mark-ring);
+  --shadow-card: var(--shadow);
+  --animate-shimmer: shimmer 1.6s ease-in-out infinite;
+  --animate-rise: rise 0.35s ease-out both;
 }
 
-/* Light only for now: lawyers read case files on paper-white pages. */
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
 body {
-  background: #fafafa;
-  color: #18181b;
+  background-color: var(--background);
+  background-image: radial-gradient(60rem 30rem at 50% -12rem, var(--glow), transparent 70%);
+  background-repeat: no-repeat;
+  color: var(--foreground);
+}
+
+::selection {
+  background: var(--accent-soft);
+}
+
+/* Skeleton line for an answer that is still streaming. */
+.skeleton {
+  background: linear-gradient(90deg, var(--surface-muted) 25%, var(--line) 50%, var(--surface-muted) 75%);
+  background-size: 200% 100%;
+  animation: var(--animate-shimmer);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
 }

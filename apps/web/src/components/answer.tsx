@@ -15,22 +15,22 @@ type AnswerProps = {
 /** An answer as a list of statements, each followed by the citations that support it. */
 export function Answer({ statements, onOpenCitation, openCitation }: AnswerProps) {
   return (
-    <ol className="flex flex-col gap-3">
+    <ol className="flex flex-col gap-4">
       {statements.map((statement, index) => (
-        <li key={index} id={`statement-${index}`} className="leading-relaxed text-zinc-800">
+        <li key={index} id={`statement-${index}`} className="animate-rise text-[0.95rem] leading-7 text-foreground">
           <span>{statement.text}</span>{" "}
-          <span className="inline-flex flex-wrap gap-1 align-baseline">
+          <span className="inline-flex flex-wrap gap-1 align-[0.1em]">
             {statement.citations.map((citation, citationIndex) => (
               <button
                 key={citationIndex}
                 id={`citation-${index}-${citationIndex}`}
                 type="button"
                 onClick={() => onOpenCitation(citation)}
-                title={citation.quote}
-                className={`rounded border px-1.5 py-0.5 text-xs font-medium tabular-nums transition-colors ${
+                title={`Abrir: “${citation.quote}”`}
+                className={`rounded-md px-1.5 py-0.5 text-[0.72rem] leading-4 font-semibold tabular-nums ring-1 transition-colors ring-inset ${
                   citation === openCitation
-                    ? "border-blue-800 bg-blue-800 text-white"
-                    : "border-blue-200 bg-blue-50 text-blue-900 hover:border-blue-400"
+                    ? "bg-accent text-accent-foreground ring-accent"
+                    : "bg-accent-soft text-accent-text ring-accent/25 hover:bg-accent hover:text-accent-foreground"
                 }`}
               >
                 {citationLabel(citation)}

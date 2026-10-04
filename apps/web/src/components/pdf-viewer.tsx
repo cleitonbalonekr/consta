@@ -3,6 +3,7 @@
 import type { Citation } from "@consta/core";
 import type { PDFDocumentProxy } from "pdfjs-dist";
 import { useEffect, useRef, useState } from "react";
+import { ChevronLeft, ChevronRight, Quote, X } from "lucide-react";
 import { openPdf } from "@/lib/pdf";
 import { citationLabel } from "./answer";
 
@@ -28,8 +29,8 @@ export function PdfViewer({ pdfUrl, citation, onClose }: PdfViewerProps) {
   const onCitedPage = page === citation.page;
 
   return (
-    <section id="viewer" data-page={page} aria-label="Visualizador dos autos" className="flex h-full flex-col bg-zinc-100">
-      <header className="flex items-center justify-between gap-2 border-b border-zinc-200 bg-white px-3 py-2">
+    <section id="viewer" data-page={page} aria-label="Visualizador dos autos" className="flex h-full flex-col bg-surface-muted">
+      <header className="flex items-center justify-between gap-2 border-b border-line bg-surface px-3 py-2">
         <div className="flex items-center gap-1">
           <button
             id="viewer-previous-page"
@@ -37,14 +38,14 @@ export function PdfViewer({ pdfUrl, citation, onClose }: PdfViewerProps) {
             aria-label="Página anterior"
             disabled={page <= 1}
             onClick={() => setPage(page - 1)}
-            className="rounded px-2 py-1 text-zinc-700 hover:bg-zinc-100 disabled:opacity-30"
+            className="grid size-8 place-items-center rounded-lg text-muted transition-colors hover:bg-surface-muted hover:text-foreground disabled:opacity-30"
           >
-            ←
+            <ChevronLeft className="size-4" aria-hidden />
           </button>
-          <span id="viewer-page-number" className="min-w-28 text-center text-sm tabular-nums text-zinc-800">
+          <span id="viewer-page-number" className="min-w-32 text-center text-sm tabular-nums text-foreground">
             Página {page}
-            {pageCount !== null && ` de ${pageCount}`}
-            {onCitedPage && citation.folha && ` · fls. ${citation.folha}`}
+            {pageCount !== null && <span className="text-subtle">{` de ${pageCount}`}</span>}
+            {onCitedPage && citation.folha && <span className="text-accent-text">{` · fls. ${citation.folha}`}</span>}
           </span>
           <button
             id="viewer-next-page"
@@ -52,27 +53,40 @@ export function PdfViewer({ pdfUrl, citation, onClose }: PdfViewerProps) {
             aria-label="Próxima página"
             disabled={pageCount === null || page >= pageCount}
             onClick={() => setPage(page + 1)}
-            className="rounded px-2 py-1 text-zinc-700 hover:bg-zinc-100 disabled:opacity-30"
+            className="grid size-8 place-items-center rounded-lg text-muted transition-colors hover:bg-surface-muted hover:text-foreground disabled:opacity-30"
           >
-            →
+            <ChevronRight className="size-4" aria-hidden />
           </button>
         </div>
-        <button id="viewer-close" type="button" onClick={onClose} className="rounded px-2 py-1 text-sm text-zinc-600 hover:bg-zinc-100">
-          Fechar
+        <button
+          id="viewer-close"
+          type="button"
+          onClick={onClose}
+          aria-label="Fechar o visualizador"
+          title="Fechar (Esc)"
+          className="grid size-8 place-items-center rounded-lg text-muted transition-colors hover:bg-surface-muted hover:text-foreground"
+        >
+          <X className="size-4" aria-hidden />
         </button>
       </header>
-      <blockquote id="viewer-quote" className="border-b border-zinc-200 bg-amber-50 px-4 py-2 text-sm text-zinc-800">
-        <span className="mr-2 text-xs font-semibold text-amber-900">{citationLabel(citation)}</span>“{citation.quote}”
+      <blockquote id="viewer-quote" className="flex gap-3 border-b border-line bg-surface px-4 py-3">
+        <Quote className="mt-0.5 size-4 shrink-0 text-accent-text" aria-hidden />
+        <span className="text-sm leading-relaxed text-foreground">
+          <span className="mr-2 rounded-md bg-accent-soft px-1.5 py-0.5 text-[0.72rem] font-semibold tabular-nums text-accent-text">
+            {citationLabel(citation)}
+          </span>
+          {citation.quote}
+        </span>
       </blockquote>
-      <div className="flex-1 overflow-auto p-3">
+      <div className="flex-1 overflow-auto p-4">
         {pdf === "failed" ? (
-          <p id="viewer-error" role="alert" className="p-4 text-sm text-red-700">
+          <p id="viewer-error" role="alert" className="p-4 text-sm text-danger">
             Não conseguimos abrir os autos. Feche e tente de novo.
           </p>
         ) : pdf ? (
           <PdfPage pdf={pdf} page={page} marks={onCitedPage ? citation.boxes : []} />
         ) : (
-          <p className="p-4 text-sm text-zinc-500">Abrindo os autos…</p>
+          <div className="skeleton mx-auto aspect-[595/842] w-full rounded-sm" aria-label="Abrindo os autos" />
         )}
       </div>
     </section>
@@ -132,7 +146,7 @@ function PdfPage({ pdf, page, marks }: PdfPageProps) {
   }, [pdf, page]);
 
   return (
-    <div id="viewer-page" data-rendered-page={rendered ?? undefined} className="relative mx-auto bg-white shadow">
+    <div id="viewer-page" data-rendered-page={rendered ?? undefined} className="relative mx-auto rounded-sm bg-white shadow-xl ring-1 ring-black/5">
       <canvas ref={canvas} className="block h-auto w-full" />
       {rendered === page &&
         marks.map((box, index) => (
@@ -140,7 +154,7 @@ function PdfPage({ pdf, page, marks }: PdfPageProps) {
             key={index}
             id={`viewer-mark-${index}`}
             aria-hidden
-            className="pointer-events-none absolute rounded-sm bg-yellow-300/45 ring-1 ring-yellow-500/60"
+            className="pointer-events-none absolute rounded-sm bg-mark ring-1 ring-mark-ring mix-blend-multiply"
             style={{
               left: `${box.x0 * 100}%`,
               top: `${box.y0 * 100}%`,

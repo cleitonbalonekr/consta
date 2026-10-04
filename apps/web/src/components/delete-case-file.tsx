@@ -1,5 +1,6 @@
 "use client";
 
+import { Trash2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useRef, useState } from "react";
 import { removeCaseFile } from "@/app/actions";
@@ -38,30 +39,40 @@ export function DeleteCaseFile({ caseFileId, name, returnToList = false }: Delet
         id={`delete-case-file-${caseFileId}`}
         type="button"
         onClick={() => dialog.current?.showModal()}
-        className="rounded-md px-2 py-1 text-sm text-zinc-500 hover:bg-red-50 hover:text-red-700"
+        aria-label={`Excluir ${name}`}
+        title="Excluir"
+        className="grid size-9 place-items-center rounded-lg text-subtle transition-colors hover:bg-danger-soft hover:text-danger"
       >
-        Excluir
+        <Trash2 className="size-4" aria-hidden />
       </button>
       <dialog
         ref={dialog}
         id={`confirm-delete-dialog-${caseFileId}`}
         aria-labelledby={`confirm-delete-title-${caseFileId}`}
-        className="m-auto w-full max-w-md rounded-lg p-6 text-left shadow-xl backdrop:bg-zinc-950/40"
+        className="m-auto w-[calc(100%-2rem)] max-w-md rounded-2xl border border-line bg-surface p-6 text-left text-foreground shadow-2xl backdrop:bg-black/50 backdrop:backdrop-blur-sm"
       >
-        <h2 id={`confirm-delete-title-${caseFileId}`} className="text-lg font-semibold text-zinc-900">
+        <span className="grid size-10 place-items-center rounded-xl bg-danger-soft text-danger">
+          <Trash2 className="size-5" aria-hidden />
+        </span>
+        <h2 id={`confirm-delete-title-${caseFileId}`} className="mt-4 text-lg font-semibold">
           Excluir estes autos?
         </h2>
-        <p className="mt-2 text-sm text-zinc-600">
-          <span className="font-medium text-zinc-800">{name}</span> e tudo o que foi lido dele serão apagados. Isso não pode ser desfeito, e as
-          páginas já lidas continuam contando na sua cota do mês.
+        <p className="mt-2 text-sm leading-relaxed text-muted">
+          <span className="font-medium break-all text-foreground">{name}</span> e tudo o que foi lido dele serão apagados. Isso não pode ser desfeito,
+          e as páginas já lidas continuam contando na sua cota do mês.
         </p>
         {failed && (
-          <p id={`delete-error-${caseFileId}`} role="alert" className="mt-3 text-sm text-red-700">
+          <p id={`delete-error-${caseFileId}`} role="alert" className="mt-3 text-sm text-danger">
             Não conseguimos excluir agora. Tente de novo.
           </p>
         )}
         <div className="mt-6 flex justify-end gap-2">
-          <button id={`cancel-delete-${caseFileId}`} type="button" onClick={() => dialog.current?.close()} className="rounded-md px-3 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-100">
+          <button
+            id={`cancel-delete-${caseFileId}`}
+            type="button"
+            onClick={() => dialog.current?.close()}
+            className="rounded-lg px-3.5 py-2 text-sm font-medium text-muted transition-colors hover:bg-surface-muted hover:text-foreground"
+          >
             Cancelar
           </button>
           <button
@@ -69,7 +80,7 @@ export function DeleteCaseFile({ caseFileId, name, returnToList = false }: Delet
             type="button"
             disabled={deleting}
             onClick={() => void confirm()}
-            className="rounded-md bg-red-700 px-3 py-2 text-sm font-semibold text-white hover:bg-red-800 disabled:opacity-60"
+            className="rounded-lg bg-danger px-3.5 py-2 text-sm font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-60"
           >
             {deleting ? "Excluindo…" : "Excluir"}
           </button>

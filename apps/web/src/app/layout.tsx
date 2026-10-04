@@ -1,6 +1,9 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import Link from "next/link";
+import { Logo } from "@/components/logo";
+import { ThemeToggle } from "@/components/theme-toggle";
+import { THEME_INIT_SCRIPT } from "@/lib/theme";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -20,12 +23,17 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
-    <html lang="pt-BR" className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}>
+    // The theme script sets data-theme before React hydrates, so the attribute differs from the server's on purpose.
+    <html lang="pt-BR" suppressHydrationWarning className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
+      </head>
       <body className="flex h-full flex-col font-sans">
-        <header className="flex h-12 shrink-0 items-center border-b border-zinc-200 bg-white px-4 sm:px-6">
-          <Link id="home-link" href="/" className="text-lg font-semibold tracking-tight text-zinc-900">
-            Consta
+        <header className="sticky top-0 z-30 flex h-14 shrink-0 items-center justify-between border-b border-line bg-background/80 px-4 backdrop-blur-xl sm:px-6">
+          <Link id="home-link" href="/" aria-label="Consta, seus autos" className="rounded-lg">
+            <Logo />
           </Link>
+          <ThemeToggle />
         </header>
         <div className="flex min-h-0 flex-1 flex-col">{children}</div>
       </body>
