@@ -12,7 +12,40 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    "test-results/**",
+    "playwright-report/**",
   ]),
+  {
+    // Screens reach modules only through the CaseFiles and Answering interfaces;
+    // the composition root alone picks the implementations behind them.
+    files: ["src/**/*.{ts,tsx}"],
+    ignores: ["src/server/**"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              group: ["@/server/demo", "@/server/demo/*", "@consta/core/fakes", "@consta/core/db", "@consta/adapters"],
+              message: "Use container() from @/server/container; only the composition root picks implementations.",
+            },
+          ],
+          paths: [
+            {
+              name: "@consta/core",
+              importNames: ["createCaseFiles", "createAnswering", "createIngestion", "createMetering", "ingestInline"],
+              message: "Use container() from @/server/container; only the composition root builds modules.",
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
+    // Playwright fixtures call `use`, which is not React's hook.
+    files: ["e2e/**/*.ts"],
+    rules: { "react-hooks/rules-of-hooks": "off" },
+  },
 ]);
 
 export default eslintConfig;

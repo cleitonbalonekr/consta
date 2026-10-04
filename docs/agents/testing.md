@@ -21,7 +21,7 @@ The file suffix decides the tier. Unit, component and integration tests sit besi
 
 ## E2E
 
-- **Production build.** Journeys run against `next build && next start`, the same server Vercel runs, with `CONSTA_ADAPTERS=fake`: no network, no keys.
+- **Production build.** Journeys run against `next build && next start`, the same server Vercel runs, with `CONSTA_ADAPTERS=fake` and `CONSTA_MODULES=demo`: no network, no keys. Journeys share one server, so each one uploads its own case file or only reads the seeded one.
 - **Layout.** `e2e/support/` holds `base.page.ts`, `fixtures.ts` and shared `components/*.component.ts`; `e2e/modules/<area>/` holds that area's `*.e2e.ts` journeys and `pages/*.page.ts`. One class per file, named for its class (`case-file.page.ts` → `CaseFilePage`).
 - **Select by `id`.** Every control a journey touches carries an `id`, reached through `BasePage#byId`. Repeated rows carry a prefixed id (`peca-row-<id>`), reached with `[id^="peca-row-"]`. Visible Portuguese copy changes with wording, so it stays out of selectors; role or `aria-label` fits when the label is itself the state under assertion. New form fields get an `id` and a `<label htmlFor>`.
 - **Desktop first.** Desktop Chrome is the default project, because lawyers read large case files at a desk. A tablet project covers the responsive layout only.

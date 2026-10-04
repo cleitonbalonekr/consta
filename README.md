@@ -21,10 +21,18 @@ packages/evals      quality runs against real providers (run by hand)
 ```bash
 nvm use                       # Node 24
 pnpm install
-cp .env.example .env          # CONSTA_ADAPTERS=fake needs no keys
+pnpm dev                      # http://localhost:3000, demo modules: no accounts, keys or Docker
+```
+
+The web app serves in-memory demo modules by default (`CONSTA_MODULES=demo`): a seeded case file backed by `apps/web/public/demo/autos-de-exemplo.pdf`, simulated ingestion and scripted answers. Uploading a file whose name contains `sem-cota` shows the quota-exceeded screen; one whose name contains `falha` fails halfway through ingestion. After editing the sample pages in `apps/web/src/server/demo/sample-pages.ts`, run `pnpm --filter @consta/web demo:pdf`.
+
+To run on the real modules instead:
+
+```bash
+cp .env.example .env          # set CONSTA_MODULES=real; CONSTA_ADAPTERS=fake needs no keys
 docker compose up -d          # Postgres with pgvector on localhost:5432
 pnpm db:migrate
-pnpm dev                      # http://localhost:3000
+pnpm dev
 ```
 
 ## Checks
@@ -32,5 +40,9 @@ pnpm dev                      # http://localhost:3000
 ```bash
 pnpm typecheck
 pnpm lint                     # includes the module boundary rules
-pnpm test                     # core tests run on PGlite, no Docker needed
+pnpm test                     # unit, component and integration tiers; no Docker needed
+pnpm test:unit                # or one tier: test:component, test:integration
+pnpm test:e2e                 # Playwright against a production build in demo mode
 ```
+
+The first E2E run needs a browser: `pnpm --filter @consta/web exec playwright install chromium`.

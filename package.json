@@ -12,6 +12,10 @@
     "typecheck": "pnpm -r typecheck",
     "lint": "pnpm -r lint",
     "test": "pnpm -r test",
+    "test:unit": "pnpm -r test:unit",
+    "test:component": "pnpm -r test:component",
+    "test:integration": "pnpm -r test:integration",
+    "test:e2e": "pnpm --filter @consta/web test:e2e",
     "db:generate": "pnpm --filter @consta/core db:generate",
     "db:migrate": "pnpm --filter @consta/core db:migrate"
   },
