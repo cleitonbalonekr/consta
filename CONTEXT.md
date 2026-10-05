@@ -80,5 +80,5 @@ What a lawyer pays for: Trial, Pro or Enterprise.
 _Avoid_: tier, subscription
 
 **Page quota**:
-The number of pages a lawyer's plan allows them to ingest each month. Pages count once ingested, even if the case file is deleted later.
+The number of pages a lawyer's plan allows them to ingest each month. Pages count once ingested, even if the case file is deleted later. A case file whose ingestion fails gives its pages back.
 _Avoid_: credits, limit

@@ -10,6 +10,7 @@
 - [ ] Signed-out requests to any app route redirect to sign-in; signed-in visits to sign-in redirect to the case file list
 - [ ] The first sign-in creates the lawyer's Trial plan row with the Trial page quota
 - [ ] `Metering.pagesLeft` returns the Trial quota for a new lawyer
+- [ ] `lawyer_plan.lawyer_id`, `case_file.lawyer_id` and `question.lawyer_id` get foreign keys to the Better Auth user table; `usage_event` and `quota_charge` keep `lawyer_id` without one, on purpose, so billing records outlive the account
 - [ ] The Resend mailer adapter sends the sign-in email in real-adapter mode; in fake mode the fake mailer logs the link to the server console
 - [ ] Demo modules key case files by lawyer: a second lawyer sees an empty list
 - [ ] Integration tests cover the Trial plan on first sign-in and `pagesLeft`

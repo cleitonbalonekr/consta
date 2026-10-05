@@ -8,7 +8,10 @@ export interface Metering {
   record(lawyer: LawyerId, caseFileId: CaseFileId | null, usage: Usage[]): Promise<void>;
   /** Pages left this month. Pages count once ingested, even if the case file is deleted later. */
   pagesLeft(lawyer: LawyerId): Promise<number>;
-  /** Counts a case file's pages against the quota. Idempotent per case file. */
+  /**
+   * Checks the quota and charges a case file's pages in one transaction, so two
+   * uploads can't both fit. Throws QuotaExceeded. Idempotent per case file.
+   */
   chargePages(lawyer: LawyerId, caseFileId: CaseFileId, pages: number): Promise<void>;
 }
 

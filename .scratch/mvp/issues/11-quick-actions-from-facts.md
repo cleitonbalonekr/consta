@@ -7,6 +7,7 @@
 **Status:** ready-for-agent
 
 - [ ] Each quick action selects the matching fact kinds for the case file
+- [ ] Quick action questions are saved with `scope = 'whole-file'` and their `quick_action`
 - [ ] Every statement cites the page of its fact; uncited statements are dropped as in ticket 07
 - [ ] Integration tests cover each quick action with seeded facts
 - [ ] E2E covers running each quick action in fake mode

@@ -11,6 +11,8 @@
 - [ ] The Voyage reranker and the Claude citing model adapters are implemented with contract tests
 - [ ] Every citation resolves to its passage's page, folha, quoted text and boxes; uncited statements are dropped and counted (ADR-0003)
 - [ ] The question and usage are saved
+- [ ] `question.scope` becomes a Postgres enum (`whole-file`, `peca`) and a nullable `quick_action` enum (`timeline`, `people`, `amounts`) is added, matching Scope and Quick action in `CONTEXT.md`; `CHECK ((scope = 'peca') = (peca_id IS NOT NULL))`; `peca_id` changes to on delete cascade, since set null would break that check
+- [ ] `question.answer` is declared with `$type<Statement[]>()`
 - [ ] Unit tests cover rank fusion; integration tests cover dropped statements, citation resolution, refusal and ownership, using scripted fake model answers
 - [ ] E2E covers asking about an ingested fixture in fake mode
 - [ ] A citation eval script in `packages/evals` runs the 20 pilot questions with real adapters and reports, for each answer, the cited pages to check by hand

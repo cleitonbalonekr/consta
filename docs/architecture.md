@@ -75,7 +75,7 @@ Each module is a folder whose `index.ts` is its whole interface. Code outside th
 
 - **A citation names the PDF page and, when the page has one, its folha.** Ingestion detects the stamped folha; Answering adds it to each citation.
 - **Every upload is a new case file**, even a newer download of the same lawsuit. Updating an existing case file comes after the pilot.
-- **Pages count against the page quota once ingested** and are not given back when a case file is deleted.
+- **Pages count against the page quota once ingested** and are not given back when a case file is deleted. They are charged when the upload finishes and given back if ingestion fails.
 - **A lawyer owns case files directly.** When firms arrive, a firm workspace will own case files and lawyers will belong to it; module interfaces take a `LawyerId` today and will take the owner instead.
 
 ## Interfaces
@@ -135,7 +135,7 @@ export type AnswerEvent =
   | { type: "done"; questionId: QuestionId; dropped: number }; // dropped = uncited statements removed
 
 export type Statement = { text: string; citations: [Citation, ...Citation[]] }; // never empty, by type
-export type Citation = { page: number; folha?: string; quote: string; boxes: Box[] };
+export type Citation = { page: number; folha: string | null; quote: string; boxes: Box[] };
 ```
 
 ```ts
@@ -143,7 +143,7 @@ export type Citation = { page: number; folha?: string; quote: string; boxes: Box
 export interface Metering {
   record(lawyer: LawyerId, caseFileId: CaseFileId | null, usage: Usage[]): Promise<void>;
   pagesLeft(lawyer: LawyerId): Promise<number>;
-  /** Counts a case file's pages against the quota. Idempotent per case file. */
+  /** Checks and charges in one transaction; throws QuotaExceeded. Idempotent per case file. */
   chargePages(lawyer: LawyerId, caseFileId: CaseFileId, pages: number): Promise<void>;
 }
 ```
