@@ -20,8 +20,8 @@ type DemoCaseFilesDeps = { store: DemoStore; files: InMemoryFileStore; now: () =
 /** CaseFiles in memory: uploads land in an in-memory store and ingestion is simulated by the clock. */
 export function createDemoCaseFiles({ store, files, now }: DemoCaseFilesDeps): CaseFiles {
   const owned = (lawyer: LawyerId, caseFileId: CaseFileId) => {
-    const file = store.get(caseFileId);
-    if (!file || file.lawyer !== lawyer) throw new NotFound(`Case file ${caseFileId} not found.`);
+    const file = store.caseFilesOf(lawyer).get(caseFileId);
+    if (!file) throw new NotFound(`Case file ${caseFileId} not found.`);
     return file;
   };
 
@@ -49,9 +49,8 @@ export function createDemoCaseFiles({ store, files, now }: DemoCaseFilesDeps): C
       const caseFileId = CaseFileId(crypto.randomUUID());
       const key = `case-files/${caseFileId}.pdf`;
       const { uploadId } = await files.startMultipart(key, "application/pdf");
-      store.set(caseFileId, {
+      store.caseFilesOf(lawyer).set(caseFileId, {
         id: caseFileId,
-        lawyer,
         name,
         pageCount: pages,
         createdAt: now(),
@@ -85,8 +84,7 @@ export function createDemoCaseFiles({ store, files, now }: DemoCaseFilesDeps): C
       return view(owned(lawyer, caseFileId));
     },
     async list(lawyer) {
-      return [...store.values()]
-        .filter((file) => file.lawyer === lawyer)
+      return [...store.caseFilesOf(lawyer).values()]
         .sort((a, b) => b.createdAt - a.createdAt)
         .map(summary);
     },
@@ -98,7 +96,7 @@ export function createDemoCaseFiles({ store, files, now }: DemoCaseFilesDeps): C
       const file = owned(lawyer, caseFileId);
       if (file.key && file.uploadId) await files.abortMultipart(file.key, file.uploadId);
       if (file.key) await files.remove(file.key);
-      store.delete(caseFileId);
+      store.caseFilesOf(lawyer).delete(caseFileId);
     },
   };
 }

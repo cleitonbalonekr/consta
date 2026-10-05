@@ -2,6 +2,9 @@
 
 import { CaseFileId, QuotaExceeded } from "@consta/core";
 import { revalidatePath } from "next/cache";
+import { headers } from "next/headers";
+import { redirect } from "next/navigation";
+import { SIGN_IN_PATH } from "@/lib/routes";
 import { container } from "@/server/container";
 import { currentLawyer } from "@/server/lawyer";
 
@@ -38,6 +41,12 @@ export async function finishUpload(caseFileId: string): Promise<void> {
 export async function removeCaseFile(caseFileId: string): Promise<void> {
   await container().caseFiles.remove(await currentLawyer(), CaseFileId(requireText(caseFileId, "caseFileId")));
   revalidatePath("/");
+}
+
+/** Ends the lawyer's session and returns to sign-in. */
+export async function signOut(): Promise<void> {
+  await container().auth.api.signOut({ headers: await headers() });
+  redirect(SIGN_IN_PATH);
 }
 
 function requireText(value: unknown, name: string): string {

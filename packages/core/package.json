@@ -7,7 +7,8 @@
     ".": "./src/index.ts",
     "./ports": "./src/ports/index.ts",
     "./fakes": "./src/ports/fakes/index.ts",
-    "./db": "./src/db/index.ts"
+    "./db": "./src/db/index.ts",
+    "./testing": "./src/db/testing.ts"
   },
   "scripts": {
     "typecheck": "tsc",

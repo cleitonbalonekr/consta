@@ -1,10 +1,10 @@
 import { CaseFileId } from "@consta/core";
-import type { Answering, CaseFiles, LawyerId } from "@consta/core";
+import type { Answering, CaseFiles } from "@consta/core";
 import { InMemoryFileStore } from "@consta/core/fakes";
 import { createDemoAnswering } from "./answering";
 import { createDemoCaseFiles } from "./case-files";
 import { sampleScript } from "./script";
-import type { DemoStore } from "./store";
+import { DemoStore } from "./store";
 
 /** What the demo keeps in memory, as the real modules keep it in Postgres and storage. */
 export type DemoState = {
@@ -21,22 +21,24 @@ export type DemoDeps = {
 
 const ONE_DAY_MS = 24 * 60 * 60 * 1000;
 
-/** Empty demo state, seeded with a ready case file whose PDF is `public/demo/autos-de-exemplo.pdf`. */
-export function createDemoState({ lawyer, now }: { lawyer: LawyerId; now: () => number }): DemoState {
-  const store: DemoStore = new Map();
-  const id = CaseFileId("autos-de-exemplo");
-  const createdAt = now() - ONE_DAY_MS;
-  store.set(id, {
-    id,
-    lawyer,
-    name: "Autos de exemplo.pdf",
-    pageCount: 10,
-    createdAt,
-    finishedAt: createdAt,
-    failsAtPage: null,
-    key: null,
-    uploadId: null,
-    script: sampleScript(),
+/**
+ * Empty demo state. Each lawyer starts with a ready case file whose PDF is
+ * `public/demo/autos-de-exemplo.pdf`.
+ */
+export function createDemoState({ now }: { now: () => number }): DemoState {
+  const store = new DemoStore(() => {
+    const createdAt = now() - ONE_DAY_MS;
+    return {
+      id: CaseFileId("autos-de-exemplo"),
+      name: "Autos de exemplo.pdf",
+      pageCount: 10,
+      createdAt,
+      finishedAt: createdAt,
+      failsAtPage: null,
+      key: null,
+      uploadId: null,
+      script: sampleScript(),
+    };
   });
   return { store, files: new InMemoryFileStore() };
 }

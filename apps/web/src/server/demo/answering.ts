@@ -10,8 +10,8 @@ type DemoAnsweringDeps = { store: DemoStore; now: () => number; pause: () => Pro
 export function createDemoAnswering({ store, now, pause }: DemoAnsweringDeps): Answering {
   return {
     async *ask(lawyer: LawyerId, question: QuestionInput) {
-      const file = store.get(question.caseFileId);
-      if (!file || file.lawyer !== lawyer) throw new NotFound(`Case file ${question.caseFileId} not found.`);
+      const file = store.caseFilesOf(lawyer).get(question.caseFileId);
+      if (!file) throw new NotFound(`Case file ${question.caseFileId} not found.`);
       if (ingestionProgress(file, now()).status !== "ready") {
         yield { type: "refused", reason: "not-ready" };
         return;

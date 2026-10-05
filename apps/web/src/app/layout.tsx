@@ -2,8 +2,10 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import Link from "next/link";
 import { Logo } from "@/components/logo";
+import { SignOut } from "@/components/sign-out";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { THEME_INIT_SCRIPT } from "@/lib/theme";
+import { signedInLawyer } from "@/server/lawyer";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -21,7 +23,8 @@ export const metadata: Metadata = {
   description: "Perguntas sobre os autos, com a página de cada resposta.",
 };
 
-export default function RootLayout({ children }: LayoutProps<"/">) {
+export default async function RootLayout({ children }: LayoutProps<"/">) {
+  const lawyer = await signedInLawyer();
   return (
     // The theme script sets data-theme before React hydrates, so the attribute differs from the server's on purpose.
     <html lang="pt-BR" suppressHydrationWarning className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}>
@@ -33,7 +36,10 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
           <Link id="home-link" href="/" aria-label="Consta, seus autos" className="rounded-lg">
             <Logo />
           </Link>
-          <ThemeToggle />
+          <div className="flex items-center gap-1">
+            {lawyer && <SignOut email={lawyer.email} />}
+            <ThemeToggle />
+          </div>
         </header>
         <div className="flex min-h-0 flex-1 flex-col">{children}</div>
       </body>

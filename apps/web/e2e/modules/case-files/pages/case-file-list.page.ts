@@ -24,6 +24,10 @@ export class CaseFileListPage extends BasePage {
     return this.byId(`case-file-row-${caseFileId}`);
   }
 
+  get rows() {
+    return this.byIdPrefix("case-file-row-");
+  }
+
   get quotaExceeded() {
     return this.byId("quota-exceeded");
   }

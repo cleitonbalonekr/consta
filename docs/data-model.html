@@ -110,7 +110,7 @@ ol.findings { list-style: none; margin: 0; padding: 0; display: grid; gap: 18px;
   </header>
 
   <figure>
-    <div class="plate"><svg viewBox="0 0 1280 700" role="img" aria-label="Entity-relationship diagram of Consta's ten Postgres tables. case_file is the hub: six content tables (ingestion_range, page, passage, peca, fact, question) cascade-delete with it, usage_event keeps its row with case_file_id set to null, and quota_charge has no foreign key so the page charge survives. lawyer_id is a Better Auth user id with no foreign key, and passages, facts, peças and answer citations point at pages by number without a constraint.">
+    <div class="plate"><svg viewBox="0 0 1280 700" role="img" aria-label="Entity-relationship diagram of Consta's ten Postgres tables. case_file is the hub: six content tables (ingestion_range, page, passage, peca, fact, question) cascade-delete with it, usage_event keeps its row with case_file_id set to null, and quota_charge has no foreign key so the page charge survives. lawyer_id references the Better Auth user table except on usage_event and quota_charge, and passages, facts, peças and answer citations point at pages by number without a constraint.">
 <defs>
 <marker id="a-cascade" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="m-cascade" d="M0 0 L10 5 L0 10 z"/></marker>
 <marker id="a-null" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="m-null" d="M0 0 L10 5 L0 10 z"/></marker>
@@ -141,7 +141,7 @@ ol.findings { list-style: none; margin: 0; padding: 0; display: grid; gap: 18px;
 <rect class="head" x="21" y="71" width="248" height="24" rx="5"/>
 <line class="sep" x1="20" y1="95" x2="270" y2="95"/>
 <text class="tname" x="30" y="87">user</text>
-<text class="tnote" x="260" y="87" text-anchor="end">Better Auth · external</text>
+<text class="tnote" x="260" y="87" text-anchor="end">Better Auth</text>
 <text class="badge" x="30" y="111.5">PK</text>
 <text class="fname" x="64" y="111.5">id</text>
 <text class="ftype" x="260" y="111.5" text-anchor="end">text</text>
@@ -393,7 +393,7 @@ ol.findings { list-style: none; margin: 0; padding: 0; display: grid; gap: 18px;
       <span><code style="color:var(--ref)">⇢ page</code>column holds a value that points at another row, unconstrained</span>
       <span><code>?</code> nullable · <code>U</code> part of a composite unique index</span>
     </div>
-    <figcaption>Deleting a case file cascades through the six content tables on the right. <code>usage_event</code> keeps its cost row with <code>case_file_id</code> nulled, and <code>quota_charge</code> has no foreign key at all, so pages already charged stay charged. The <code>user</code> table belongs to Better Auth and is not in this schema.</figcaption>
+    <figcaption>Deleting a case file cascades through the six content tables on the right. <code>usage_event</code> keeps its cost row with <code>case_file_id</code> nulled, and <code>quota_charge</code> has no foreign key at all, so pages already charged stay charged. The <code>user</code> table is Better Auth's; its <code>session</code>, <code>account</code> and <code>verification</code> tables are in the schema but left out of the diagram.</figcaption>
   </figure>
 
   <section class="col">
@@ -435,8 +435,8 @@ ol.findings { list-style: none; margin: 0; padding: 0; display: grid; gap: 18px;
         <p>Fix: primary key <code>(case_file_id, number)</code>; <code>passage</code> references it with cascade, so a retried range deletes its pages and the passages follow (ticket 05). <code>fact</code> references it too, and <code>peca</code> and <code>ingestion_range</code> check <code>first_page &lt;= last_page</code> (tickets 05, 09). Citations inside the answer JSON stay unconstrained, which is safe because pages don't change after ready.</p></li>
       <li><span class="tag gap">medium</span><b><code>question.scope</code> mixes scope and quick action.</b>
         <p><code>CONTEXT.md</code> treats them as two concepts. Fix: <code>scope</code> becomes an enum of <code>whole-file</code> and <code>peca</code>, a nullable <code>quick_action</code> enum is added, a check ties <code>scope = 'peca'</code> to a non-null <code>peca_id</code>, and <code>peca_id</code> moves to cascade so the check can't be broken (tickets 07, 10, 11).</p></li>
-      <li><span class="tag note">low</span><b><code>lawyer_id</code> has no foreign key yet.</b>
-        <p>Ticket 02 brings the Better Auth tables into the migrations and creates the Trial plan row on first sign-in. It now also adds foreign keys from <code>lawyer_plan</code>, <code>case_file</code> and <code>question</code>. <code>usage_event</code> and <code>quota_charge</code> stay unconstrained so billing records outlive the account.</p></li>
+      <li><span class="tag design">design</span><b><code>lawyer_id</code> references the Better Auth user, except on billing records.</b>
+        <p>Ticket 02 brought the Better Auth tables into the migrations and creates the Trial plan row on first sign-in. <code>lawyer_plan</code>, <code>case_file</code> and <code>question</code> reference <code>user</code>. Only the plan cascades: an account with case files can't be deleted until <code>CaseFiles.remove</code> has deleted them, stored PDFs included. <code>usage_event</code> and <code>quota_charge</code> stay unconstrained so billing records outlive the account.</p></li>
       <li><span class="tag note">low</span><b>Untyped JSON.</b>
         <p><code>question.answer</code> gets <code>$type&lt;Statement[]&gt;</code> (ticket 07), and <code>question.feedback</code> gets a type whose "wrong page" flag names a citation by statement and citation index (ticket 14). <code>ingestion_range.status</code> and <code>usage_event.unit</code> stay text enums checked only by the app; that's left as is.</p></li>
     </ol>

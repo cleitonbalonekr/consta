@@ -1,4 +1,5 @@
 export type Email =
+  | { template: "sign-in"; to: string; data: { url: string } }
   | { template: "ingestion-ready"; to: string; data: { caseFileName: string; url: string } }
   | { template: "ingestion-failed"; to: string; data: { caseFileName: string; reason: string } };
 

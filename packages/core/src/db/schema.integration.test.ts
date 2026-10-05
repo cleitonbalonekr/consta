@@ -1,18 +1,7 @@
-import { PGlite } from "@electric-sql/pglite";
-import { vector } from "@electric-sql/pglite-pgvector";
-import { sql } from "drizzle-orm";
-import { drizzle } from "drizzle-orm/pglite";
-import { migrate } from "drizzle-orm/pglite/migrator";
-import { fileURLToPath } from "node:url";
+import { eq, sql } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import * as schema from "./schema";
-
-async function migratedDb() {
-  const client = new PGlite({ extensions: { vector } });
-  const db = drizzle(client, { schema });
-  await migrate(db, { migrationsFolder: fileURLToPath(new URL("./migrations", import.meta.url)) });
-  return db;
-}
+import { createTestDb, insertLawyer } from "./testing";
 
 function embedding(hot: number) {
   return Array.from({ length: schema.EMBEDDING_DIMENSIONS }, (_, i) => (i === hot ? 1 : 0));
@@ -20,10 +9,11 @@ function embedding(hot: number) {
 
 describe("database schema", () => {
   it("finds passages by Portuguese full-text and by vector distance", async () => {
-    const db = await migratedDb();
+    const db = await createTestDb();
+    const lawyerId = await insertLawyer(db);
     const [caseFile] = await db
       .insert(schema.caseFile)
-      .values({ lawyerId: "lawyer-1", name: "Autos 123", storageKey: "case-files/1.pdf", sizeBytes: 1, pageCount: 2 })
+      .values({ lawyerId, name: "Autos 123", storageKey: "case-files/1.pdf", sizeBytes: 1, pageCount: 2 })
       .returning();
 
     await db.insert(schema.passage).values([
@@ -49,15 +39,16 @@ describe("database schema", () => {
   });
 
   it("removes everything derived from a case file when it is deleted, but keeps usage", async () => {
-    const db = await migratedDb();
+    const db = await createTestDb();
+    const lawyerId = await insertLawyer(db);
     const [caseFile] = await db
       .insert(schema.caseFile)
-      .values({ lawyerId: "lawyer-1", name: "Autos 123", storageKey: "case-files/1.pdf", sizeBytes: 1, pageCount: 1 })
+      .values({ lawyerId, name: "Autos 123", storageKey: "case-files/1.pdf", sizeBytes: 1, pageCount: 1 })
       .returning();
     const caseFileId = caseFile!.id;
     await db.insert(schema.page).values({ caseFileId, number: 1, source: "digital", text: "x", blocks: [] });
     await db.insert(schema.usageEvent).values({
-      lawyerId: "lawyer-1", caseFileId, kind: "ocr", provider: "test", model: "test", units: 1, unit: "page", costUsd: "0.004",
+      lawyerId, caseFileId, kind: "ocr", provider: "test", model: "test", units: 1, unit: "page", costUsd: "0.004",
     });
 
     await db.delete(schema.caseFile).where(sql`${schema.caseFile.id} = ${caseFileId}`);
@@ -65,5 +56,39 @@ describe("database schema", () => {
     expect(await db.select().from(schema.page)).toEqual([]);
     const usage = await db.select({ caseFileId: schema.usageEvent.caseFileId }).from(schema.usageEvent);
     expect(usage).toEqual([{ caseFileId: null }]);
+  });
+
+  it("refuses a case file for a lawyer who has no account", async () => {
+    const db = await createTestDb();
+
+    await expect(
+      db.insert(schema.caseFile).values({ lawyerId: "nobody", name: "Autos 123", storageKey: "case-files/1.pdf", sizeBytes: 1, pageCount: 1 }),
+    ).rejects.toThrow();
+  });
+
+  it("keeps a lawyer's account while they have case files, whose PDFs only CaseFiles can remove", async () => {
+    const db = await createTestDb();
+    const lawyerId = await insertLawyer(db);
+    await db.insert(schema.caseFile).values({ lawyerId, name: "Autos 123", storageKey: "case-files/1.pdf", sizeBytes: 1, pageCount: 1 });
+
+    await expect(db.delete(schema.user).where(eq(schema.user.id, lawyerId))).rejects.toThrow();
+  });
+
+  it("deletes a lawyer's plan with their account, but keeps usage and quota charges", async () => {
+    const db = await createTestDb();
+    const lawyerId = await insertLawyer(db);
+    await db.insert(schema.lawyerPlan).values({ lawyerId, pageQuota: 500 });
+    await db.insert(schema.usageEvent).values({
+      lawyerId, kind: "answer", provider: "test", model: "test", units: 1, unit: "token", costUsd: "0.01",
+    });
+    await db.insert(schema.quotaCharge).values({ lawyerId, pages: 1 });
+
+    await db.delete(schema.user).where(eq(schema.user.id, lawyerId));
+
+    expect(await db.select().from(schema.lawyerPlan)).toEqual([]);
+    expect(await db.select({ lawyerId: schema.usageEvent.lawyerId }).from(schema.usageEvent)).toEqual([{ lawyerId }]);
+    expect(await db.select({ lawyerId: schema.quotaCharge.lawyerId, pages: schema.quotaCharge.pages }).from(schema.quotaCharge)).toEqual([
+      { lawyerId, pages: 1 },
+    ]);
   });
 });

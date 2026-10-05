@@ -32,7 +32,7 @@ type Env = Record<string, string | undefined>;
  * uses in-memory fakes and needs no network or keys.
  */
 export function adaptersFromEnv(env: Env): ExternalAdapters {
-  if ((env.CONSTA_ADAPTERS ?? "fake") === "fake") {
+  if (usesFakeAdapters(env)) {
     return {
       files: new InMemoryFileStore(),
       ocr: new FakeOcr(),
@@ -40,7 +40,7 @@ export function adaptersFromEnv(env: Env): ExternalAdapters {
       reranker: new FakeReranker(),
       model: new FakeCitingModel(),
       extractor: new FakeMapExtractor(),
-      mailer: new InMemoryMailer(),
+      mailer: mailerFromEnv(env),
     };
   }
   const anthropic = { apiKey: required(env, "ANTHROPIC_API_KEY") };
@@ -58,8 +58,22 @@ export function adaptersFromEnv(env: Env): ExternalAdapters {
     reranker: createVoyageReranker({ ...voyage, model: "rerank-3-lite" }),
     model: createClaudeCitingModel({ ...anthropic, model: "claude-opus-5" }),
     extractor: createClaudeMapExtractor({ ...anthropic, model: "claude-haiku-4-5" }),
-    mailer: createResendMailer({ apiKey: required(env, "RESEND_API_KEY"), from: env.EMAIL_FROM ?? "Consta <noreply@consta.app>" }),
+    mailer: mailerFromEnv(env),
   };
+}
+
+/**
+ * The mailer alone, for the web app's sign-in emails. With fakes, sign-in links
+ * go to the server console instead of an inbox.
+ */
+export function mailerFromEnv(env: Env): Mailer {
+  if (usesFakeAdapters(env)) return new InMemoryMailer(console.info);
+  return createResendMailer({ apiKey: required(env, "RESEND_API_KEY"), from: env.EMAIL_FROM ?? "Consta <noreply@consta.app>" });
+}
+
+/** `CONSTA_ADAPTERS=fake`, the default. */
+export function usesFakeAdapters(env: Env) {
+  return (env.CONSTA_ADAPTERS ?? "fake") === "fake";
 }
 
 function required(env: Env, name: string) {

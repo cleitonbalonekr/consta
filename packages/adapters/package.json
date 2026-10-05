@@ -8,10 +8,15 @@
   },
   "scripts": {
     "typecheck": "tsc",
-    "lint": "eslint src"
+    "lint": "eslint src",
+    "test": "vitest run",
+    "test:unit": "vitest run --project unit"
   },
   "dependencies": {
     "@consta/core": "workspace:*",
     "@trigger.dev/sdk": "^4.7.2"
+  },
+  "devDependencies": {
+    "vitest": "^5.0.3"
   }
 }

@@ -24,7 +24,9 @@ pnpm install
 pnpm dev                      # http://localhost:3000, demo modules: no accounts, keys or Docker
 ```
 
-The web app serves in-memory demo modules by default (`CONSTA_MODULES=demo`): a seeded case file backed by `apps/web/public/demo/autos-de-exemplo.pdf`, simulated ingestion and scripted answers. Uploading a file whose name contains `sem-cota` shows the quota-exceeded screen; one whose name contains `falha` fails halfway through ingestion. After editing the sample pages in `apps/web/src/server/demo/sample-pages.ts`, run `pnpm --filter @consta/web demo:pdf`.
+Sign in with any email: with fake adapters (the default) no email is sent, and the sign-in link is printed in the terminal running `pnpm dev`, as `Sign-in link for <email>: <url>`. Open it to land on your case files.
+
+The web app serves in-memory demo modules by default (`CONSTA_MODULES=demo`): each lawyer starts with their own copy of a seeded case file backed by `apps/web/public/demo/autos-de-exemplo.pdf`, simulated ingestion and scripted answers. Lawyers and sessions live in memory too, so restarting the server signs everyone out. Uploading a file whose name contains `sem-cota` shows the quota-exceeded screen; one whose name contains `falha` fails halfway through ingestion. After editing the sample pages in `apps/web/src/server/demo/sample-pages.ts`, run `pnpm --filter @consta/web demo:pdf`.
 
 To run on the real modules instead:
 
@@ -45,4 +47,4 @@ pnpm test:unit                # or one tier: test:component, test:integration
 pnpm test:e2e                 # Playwright against a production build in demo mode
 ```
 
-The first E2E run needs a browser: `pnpm --filter @consta/web exec playwright install chromium`.
+The first E2E run needs a browser: `pnpm --filter @consta/web exec playwright install chromium`. Each journey signs in as a new lawyer through the link the server logs; Playwright writes the server's output to `apps/web/e2e-server.log` for that, so a server you start yourself on port 3100 must write its output there too.

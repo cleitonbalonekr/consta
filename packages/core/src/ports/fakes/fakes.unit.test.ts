@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { FakeCitingModel, FakeEmbedder, InMemoryFileStore } from "./index";
+import { FakeCitingModel, FakeEmbedder, InMemoryFileStore, InMemoryMailer } from "./index";
 
 describe("InMemoryFileStore", () => {
   it("assembles a multipart upload in part order and supports resume", async () => {
@@ -41,5 +41,18 @@ describe("FakeCitingModel", () => {
     }
     expect(events[0]).toEqual({ type: "text", text: "Resposta falsa.", sourceIds: ["p12"] });
     expect(events.at(-1)?.type).toBe("usage");
+  });
+});
+
+describe("InMemoryMailer", () => {
+  it("keeps every email and logs only sign-in links", async () => {
+    const lines: string[] = [];
+    const mailer = new InMemoryMailer((line) => lines.push(line));
+
+    await mailer.send({ template: "sign-in", to: "ana@example.com", data: { url: "http://localhost/verify?token=abc" } });
+    await mailer.send({ template: "ingestion-failed", to: "ana@example.com", data: { caseFileName: "Autos.pdf", reason: "x" } });
+
+    expect(mailer.outbox.map((email) => email.template)).toEqual(["sign-in", "ingestion-failed"]);
+    expect(lines).toEqual(["Sign-in link for ana@example.com: http://localhost/verify?token=abc"]);
   });
 });

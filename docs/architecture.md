@@ -31,6 +31,7 @@ flowchart LR
   end
   WEB --> CF
   WEB --> ANS
+  WEB --> MET
   JOBS --> ING
   CF --> FS
   CF --> JB
@@ -51,7 +52,7 @@ flowchart LR
   MET --> DB
 ```
 
-The web app only calls Case files and Answering. The task runtime only calls Ingestion. Modules never call each other's internals; Case files starts Ingestion through the `Jobs` port, not by importing it.
+The web app's screens only call Case files and Answering; its sign-in calls Metering once, to give a new lawyer the Trial plan. The task runtime only calls Ingestion. Modules never call each other's internals; Case files starts Ingestion through the `Jobs` port, not by importing it.
 
 ## Modules
 
@@ -60,7 +61,7 @@ The web app only calls Case files and Answering. The task runtime only calls Ing
 | **Case files** | Start and finish an upload, view, list, get a read URL, remove | Status lifecycle, page-quota check, multipart upload bookkeeping, ownership checks, ordered deletion of every derived row and the stored PDF | `apps/web` |
 | **Ingestion** | `plan`, `ingestRange`, `map`, `fail`, run in that order; every step is idempotent | Page classification, text and block extraction, OCR of scanned pages, folha detection, passage splitting inside a page, embedding, document map windowing and merging, facts, progress, the ready email | `apps/jobs`, the inline `Jobs` adapter |
 | **Answering** | `ask` returns a stream of statements, each with at least one citation | Scope handling, hybrid search and reranking, source blocks per page, token budget, prompt caching, citation-to-page resolution, dropping uncited statements, saving the question, metering | `apps/web` |
-| **Metering** | `record` usage, `pagesLeft` for a lawyer | Cost per provider and unit, the monthly page-quota window, plan limits | The other three modules, the operator page |
+| **Metering** | `record` usage, `startTrial` and `pagesLeft` for a lawyer | Cost per provider and unit, the monthly page-quota window, plan limits | The other three modules, the web app's sign-in, the operator page |
 
 Each module is a folder whose `index.ts` is its whole interface. Code outside the folder imports only from `index.ts`; a lint rule (`no-restricted-imports` on deep paths) enforces it.
 
@@ -142,6 +143,8 @@ export type Citation = { page: number; folha: string | null; quote: string; boxe
 // packages/core/src/metering/index.ts
 export interface Metering {
   record(lawyer: LawyerId, caseFileId: CaseFileId | null, usage: Usage[]): Promise<void>;
+  /** On a lawyer's first sign-in. A lawyer who already has a plan keeps it. */
+  startTrial(lawyer: LawyerId): Promise<void>;
   pagesLeft(lawyer: LawyerId): Promise<number>;
   /** Checks and charges in one transaction; throws QuotaExceeded. Idempotent per case file. */
   chargePages(lawyer: LawyerId, caseFileId: CaseFileId, pages: number): Promise<void>;
@@ -171,7 +174,7 @@ Every port that calls an AI provider returns `usage` with its result, and the ca
 | --- | --- | --- |
 | Postgres (Drizzle, pgvector, full-text) | Runs locally; a port would have one real adapter (ADR-0002) | PGlite with `@electric-sql/pglite-pgvector`; it includes the `portuguese` text-search config |
 | pdf.js, pdf-lib | In-process libraries | Fixture PDFs |
-| Better Auth | Used only in `apps/web`; modules receive a `LawyerId` | Tests pass a `LawyerId` |
+| Better Auth | Used only in `apps/web`; modules receive a `LawyerId`, which is the Better Auth user id | Module tests pass a `LawyerId`; `apps/web` tests sign in through Better Auth on PGlite, or on its in-memory adapter in demo mode |
 | Trigger.dev task definitions | They are the `Jobs` adapter, not domain code | The inline `Jobs` adapter |
 
 If the Phase 1 test needs a Python extractor, it becomes an internal seam inside Ingestion, not a port in the module's interface.

@@ -4,11 +4,12 @@ import { describe, expect, it } from "vitest";
 import { createDemoModules, createDemoState } from "./index";
 
 const lawyer = LawyerId("lawyer-1");
+const otherLawyer = LawyerId("lawyer-2");
 
 function demo() {
   const clock = { now: Date.parse("2026-10-04T12:00:00Z") };
   const now = () => clock.now;
-  const state = createDemoState({ lawyer, now });
+  const state = createDemoState({ now });
   return { ...createDemoModules(state, { now, pause: async () => {} }), files: state.files, clock };
 }
 
@@ -129,13 +130,28 @@ describe("demo CaseFiles", () => {
     await expect(files.read(key)).rejects.toThrow();
   });
 
-  it("hides a case file from a lawyer who doesn't own it", async () => {
+  it("gives each lawyer their own copy of the sample case file", async () => {
     const { caseFiles } = demo();
-    const [seeded] = await caseFiles.list(lawyer);
-    const stranger = LawyerId("lawyer-2");
+    const [mine] = await caseFiles.list(lawyer);
 
-    expect(await caseFiles.list(stranger)).toEqual([]);
-    await expect(caseFiles.view(stranger, seeded!.id)).rejects.toBeInstanceOf(NotFound);
+    await caseFiles.remove(lawyer, mine!.id);
+
+    expect(await caseFiles.list(lawyer)).toEqual([]);
+    expect((await caseFiles.list(otherLawyer)).map((file) => [file.id, file.name])).toEqual([[mine!.id, "Autos de exemplo.pdf"]]);
+  });
+
+  it("hides a lawyer's case files from every other lawyer", async () => {
+    const { caseFiles, answering } = demo();
+    const [sample] = await caseFiles.list(otherLawyer);
+    await caseFiles.remove(otherLawyer, sample!.id);
+    const { caseFileId } = await caseFiles.startUpload(lawyer, { name: "Autos 123.pdf", bytes: 1, pages: 1 });
+
+    expect(await caseFiles.list(otherLawyer)).toEqual([]);
+    await expect(caseFiles.view(otherLawyer, caseFileId)).rejects.toBeInstanceOf(NotFound);
+    await expect(caseFiles.readUrl(otherLawyer, caseFileId)).rejects.toBeInstanceOf(NotFound);
+    await expect(caseFiles.remove(otherLawyer, caseFileId)).rejects.toBeInstanceOf(NotFound);
+    await expect(collect(answering, { caseFileId, quickAction: "people" }, otherLawyer)).rejects.toBeInstanceOf(NotFound);
+    expect((await caseFiles.list(lawyer)).map((file) => file.id)).toContain(caseFileId);
   });
 });
 
@@ -208,14 +224,5 @@ describe("demo Answering", () => {
 
     expect(statementsOf(events).length).toBeGreaterThan(0);
     expect(events.at(-1)).toMatchObject({ type: "done", dropped: 1 });
-  });
-
-  it("refuses to answer about another lawyer's case file", async () => {
-    const { caseFiles, answering } = demo();
-    const [seeded] = await caseFiles.list(lawyer);
-
-    await expect(
-      collect(answering, { caseFileId: seeded!.id, quickAction: "people" }, LawyerId("lawyer-2")),
-    ).rejects.toBeInstanceOf(NotFound);
   });
 });
