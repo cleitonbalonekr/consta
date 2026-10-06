@@ -1,6 +1,5 @@
-import type { Db } from "../db";
 import type { Metering } from "../metering";
-import type { FileStore, Jobs, UploadedPart } from "../ports";
+import type { FileStore, Jobs, UnitOfWork, UploadedPart } from "../ports";
 import { NotImplemented } from "../shared";
 import type { CaseFileId, CaseFileStatus, LawyerId, PecaId, PecaType } from "../shared";
 
@@ -58,7 +57,7 @@ export interface CaseFiles {
   remove(lawyer: LawyerId, caseFileId: CaseFileId): Promise<void>;
 }
 
-export type CaseFilesDeps = { db: Db; files: FileStore; jobs: Jobs; metering: Metering };
+export type CaseFilesDeps = { uow: UnitOfWork; files: FileStore; jobs: Jobs; metering: Metering };
 
 export function createCaseFiles(_deps: CaseFilesDeps): CaseFiles {
   const todo = (method: string) => async (): Promise<never> => {

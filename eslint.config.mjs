@@ -13,6 +13,11 @@ const moduleInternals = {
   message: "Import another module only through its index.ts (docs/architecture.md).",
 };
 
+const sqlOutsideRepositories = {
+  regex: "^drizzle-orm(/|$)|(^|/)db(/|$)",
+  message: "SQL lives only in repositories under src/db (ADR-0006). Use the UnitOfWork's repositories instead.",
+};
+
 export default defineConfig([
   globalIgnores(["**/node_modules/**", "**/.next/**", "**/.trigger/**", "apps/web/**", "**/migrations/**"]),
   js.configs.recommended,
@@ -27,6 +32,14 @@ export default defineConfig([
     files: ["packages/core/src/**/*.ts"],
     rules: {
       "no-restricted-imports": ["error", { patterns: [vendorSdks, moduleInternals] }],
+    },
+  },
+  {
+    // Replaces the block above outside src/db and tests, so it repeats its patterns.
+    files: ["packages/core/src/**/*.ts"],
+    ignores: ["packages/core/src/db/**", "packages/core/src/**/*.test.ts"],
+    rules: {
+      "no-restricted-imports": ["error", { patterns: [vendorSdks, moduleInternals, sqlOutsideRepositories] }],
     },
   },
 ]);

@@ -1,5 +1,5 @@
 import { createMetering, LawyerId } from "@consta/core";
-import { schema } from "@consta/core/db";
+import { createDrizzleUnitOfWork, schema } from "@consta/core/db";
 import { InMemoryMailer } from "@consta/core/fakes";
 import { createTestDb } from "@consta/core/testing";
 import { describe, expect, it } from "vitest";
@@ -10,7 +10,7 @@ const options = { secret: "a-test-secret-that-is-long-enough-for-better-auth", b
 
 async function onPostgres() {
   const db = await createTestDb();
-  const metering = createMetering({ db });
+  const metering = createMetering({ uow: createDrizzleUnitOfWork(db) });
   const mailer = new InMemoryMailer();
   return { db, metering, mailer, auth: createAuth({ ...options, database: { db }, mailer, metering }) };
 }

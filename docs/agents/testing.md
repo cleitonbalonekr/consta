@@ -8,16 +8,22 @@ The file suffix decides the tier. Unit, component and integration tests sit besi
 
 | Tier | Pattern | Runs in | What it exercises |
 | --- | --- | --- | --- |
-| unit | `*.unit.test.ts` | node | Pure functions, no I/O |
+| unit | `*.unit.test.ts` | node | Pure functions, and modules through their `index.ts` with in-memory repositories and port fakes; no I/O |
 | component | `*.component.test.tsx` | jsdom (`apps/web`) | A React component rendered from props, through Testing Library |
-| integration | `*.integration.test.ts` | node | A module through its `index.ts`, with PGlite and port fakes |
+| integration | `*.integration.test.ts` | node | A repository's Drizzle adapter and the `UnitOfWork` on PGlite |
 | e2e | `apps/web/e2e/**/*.e2e.ts` | Playwright | A lawyer's journey through the built app |
+
+## Unit
+
+- **The interface is the test surface.** Call the module's `index.ts` and assert on what it returns or what its in-memory repositories hold; tests that reach into module internals get rewritten.
+- **The database is a fake.** Modules get in-memory repositories and the in-memory `UnitOfWork` (ADR-0006), never a `Db`. A failed unit of work leaves the fakes as they were.
+- **External services are fakes** from `packages/core/src/ports/fakes`. A new port, repositories included, ships with its fake and a contract that both adapters pass: the shared cases live in `packages/core/src/ports/contracts/*.contract.ts`, and each adapter's test file calls them.
 
 ## Integration
 
-- **The interface is the test surface.** Call the module's `index.ts` and assert on what it returns or stores; tests that reach into module internals belong to a unit tier or get rewritten.
+- **Repositories are the test surface.** Call the Drizzle adapter and assert on what it returns; this is the only tier that runs SQL.
 - **Postgres is real.** Each test gets a fresh in-memory PGlite with `@electric-sql/pglite-pgvector`, migrated from `packages/core/src/db/migrations`.
-- **External services are fakes** from `packages/core/src/ports/fakes`. A new port ships with its fake and a contract test that both adapters pass.
+- **What the fakes can't show is tested here:** hybrid and full-text search, constraints, row locks, and a unit of work that rolls back.
 
 ## E2E
 

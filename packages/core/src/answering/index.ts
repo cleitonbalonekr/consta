@@ -1,6 +1,5 @@
-import type { Db } from "../db";
 import type { Metering } from "../metering";
-import type { CitingModel, Embedder, Reranker } from "../ports";
+import type { CitingModel, Embedder, Reranker, UnitOfWork } from "../ports";
 import { NotImplemented } from "../shared";
 import type { Box, CaseFileId, LawyerId, PecaId, QuestionId, QuickAction } from "../shared";
 
@@ -37,7 +36,7 @@ export interface Answering {
 }
 
 export type AnsweringDeps = {
-  db: Db;
+  uow: UnitOfWork;
   embedder: Embedder;
   reranker: Reranker;
   model: CitingModel;

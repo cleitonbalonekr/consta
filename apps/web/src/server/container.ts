@@ -1,7 +1,7 @@
 import "server-only";
 import { createAnswering, createCaseFiles, createIngestion, createMetering, ingestInline } from "@consta/core";
 import type { Answering, CaseFiles } from "@consta/core";
-import { createDb } from "@consta/core/db";
+import { createDb, createDrizzleUnitOfWork } from "@consta/core/db";
 import { InlineJobs } from "@consta/core/fakes";
 import type { InMemoryFileStore } from "@consta/core/fakes";
 import { adaptersFromEnv, createTriggerJobs, mailerFromEnv, usesFakeAdapters } from "@consta/adapters";
@@ -59,17 +59,18 @@ function demoContainer(): Container {
 function realContainer(): Container {
   const env = process.env;
   const db = createDb(env.DATABASE_URL ?? "postgres://consta:consta@localhost:5432/consta");
+  const uow = createDrizzleUnitOfWork(db);
   const adapters = adaptersFromEnv(env);
-  const metering = createMetering({ db });
+  const metering = createMetering({ uow });
 
-  const ingestion = createIngestion({ db, metering, ...adapters });
+  const ingestion = createIngestion({ uow, metering, ...adapters });
   const jobs = usesFakeAdapters(env)
     ? new InlineJobs(() => (caseFileId) => ingestInline(ingestion, caseFileId))
     : createTriggerJobs();
 
   return {
-    caseFiles: createCaseFiles({ db, files: adapters.files, jobs, metering }),
-    answering: createAnswering({ db, metering, ...adapters }),
+    caseFiles: createCaseFiles({ uow, files: adapters.files, jobs, metering }),
+    answering: createAnswering({ uow, metering, ...adapters }),
     auth: createAuth({ database: { db }, mailer: adapters.mailer, metering, limitSignIns: !usesFakeAdapters(env) }),
   };
 }

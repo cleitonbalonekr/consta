@@ -7,3 +7,4 @@ export type * from "./citing-model";
 export type * from "./map-extractor";
 export type * from "./jobs";
 export type * from "./mailer";
+export type * from "./unit-of-work";

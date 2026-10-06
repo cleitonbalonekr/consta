@@ -1,6 +1,5 @@
-import type { Db } from "../db";
 import type { Metering } from "../metering";
-import type { Embedder, FileStore, Mailer, MapExtractor, Ocr } from "../ports";
+import type { Embedder, FileStore, Mailer, MapExtractor, Ocr, UnitOfWork } from "../ports";
 import { NotImplemented } from "../shared";
 import type { CaseFileId, PageRange } from "../shared";
 
@@ -25,7 +24,7 @@ export interface Ingestion {
 }
 
 export type IngestionDeps = {
-  db: Db;
+  uow: UnitOfWork;
   files: FileStore;
   ocr: Ocr;
   embedder: Embedder;

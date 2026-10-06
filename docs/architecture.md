@@ -1,6 +1,6 @@
 # Architecture
 
-Consta is four deep modules (Case files, Ingestion, Answering, Metering) in one TypeScript package, called from two runtimes: the Next.js app and Trigger.dev tasks. External services sit behind small ports with a production adapter and an in-memory fake. Postgres is not behind a port: modules use it directly and tests run against a real local Postgres.
+Consta is four deep modules (Case files, Ingestion, Answering, Metering) in one TypeScript package, called from two runtimes: the Next.js app and Trigger.dev tasks. External services and the database sit behind small ports with a production adapter and an in-memory fake. Each module owns a repository port for its tables, and a `UnitOfWork` port runs work in one transaction (ADR-0006).
 
 Terms follow [`CONTEXT.md`](../CONTEXT.md) for the domain and the codebase-design vocabulary (module, interface, seam, adapter, depth) for the code. Decisions are in [`docs/adr/`](./adr/).
 
@@ -85,7 +85,7 @@ Sketches. They name every fact a caller must know, including order and error mod
 
 ```ts
 // packages/core/src/case-files/index.ts
-export function createCaseFiles(deps: { db: Db; files: FileStore; jobs: Jobs; metering: Metering }): CaseFiles;
+export function createCaseFiles(deps: { uow: UnitOfWork; files: FileStore; jobs: Jobs; metering: Metering }): CaseFiles;
 
 export interface CaseFiles {
   /** The browser reads the page count with pdf.js first. Throws QuotaExceeded before any upload starts. */
@@ -103,7 +103,7 @@ export interface CaseFiles {
 
 ```ts
 // packages/core/src/ingestion/index.ts
-export function createIngestion(deps: { db: Db; files: FileStore; ocr: Ocr; embedder: Embedder; extractor: MapExtractor; mailer: Mailer; metering: Metering }): Ingestion;
+export function createIngestion(deps: { uow: UnitOfWork; files: FileStore; ocr: Ocr; embedder: Embedder; extractor: MapExtractor; mailer: Mailer; metering: Metering }): Ingestion;
 
 /** Call order: plan, then ingestRange for every range (in parallel), then map. Any step may be retried. */
 export interface Ingestion {
@@ -118,7 +118,7 @@ export interface Ingestion {
 
 ```ts
 // packages/core/src/answering/index.ts
-export function createAnswering(deps: { db: Db; embedder: Embedder; reranker: Reranker; model: CitingModel; metering: Metering }): Answering;
+export function createAnswering(deps: { uow: UnitOfWork; embedder: Embedder; reranker: Reranker; model: CitingModel; metering: Metering }): Answering;
 
 export interface Answering {
   ask(lawyer: LawyerId, question: QuestionInput): AsyncIterable<AnswerEvent>;
@@ -141,6 +141,8 @@ export type Citation = { page: number; folha: string | null; quote: string; boxe
 
 ```ts
 // packages/core/src/metering/index.ts
+export function createMetering(deps: { uow: UnitOfWork }): Metering;
+
 export interface Metering {
   record(lawyer: LawyerId, caseFileId: CaseFileId | null, usage: Usage[]): Promise<void>;
   /** On a lawyer's first sign-in. A lawyer who already has a plan keeps it. */
@@ -150,6 +152,28 @@ export interface Metering {
   chargePages(lawyer: LawyerId, caseFileId: CaseFileId, pages: number): Promise<void>;
 }
 ```
+
+```ts
+// packages/core/src/ports/unit-of-work.ts
+/**
+ * Runs work in one transaction and rolls it back when the work throws. A run
+ * inside a run joins the outer transaction, so a module can call another
+ * module's method inside its own run and both commit together.
+ */
+export interface UnitOfWork {
+  run<T>(work: (repos: Repositories) => Promise<T>): Promise<T>;
+}
+
+/** Every module's repository, bound to the current transaction. */
+export type Repositories = {
+  caseFiles: CaseFileRepository;
+  ingestion: IngestionRepository;
+  answering: AnsweringRepository;
+  metering: MeteringRepository;
+};
+```
+
+A module reads and writes only its own repository from `repos`. To change another module's data, it calls that module's interface inside the same run. For example, `finishUpload` runs `metering.chargePages` and `repos.caseFiles.markQueued` in one run: the quota rule stays in Metering, and both writes commit or roll back together. Each module's repository type lives in its folder; the Drizzle adapters live in `src/db/repositories/`, the fakes in `src/ports/fakes/`.
 
 ## Seams and adapters
 
@@ -165,6 +189,8 @@ Each port is a real seam: it has a production adapter and an in-memory fake used
 | `MapExtractor` | Reads a window of pages and returns peças and facts | Claude Haiku | Scripted peças and facts |
 | `Jobs` | Starts ingestion of a case file | Trigger.dev | Inline: runs plan, ranges and map in-process |
 | `Mailer` | Sends a templated email | Resend | In-memory outbox |
+| Repositories (one per module) | Read and write the module's tables, including hybrid search | Drizzle on Postgres | In-memory tables |
+| `UnitOfWork` | Runs work in one transaction with repositories bound to it | Drizzle transaction | Copies the in-memory state and restores it if the work throws |
 
 Every port that calls an AI provider returns `usage` with its result, and the calling module passes it to Metering.
 
@@ -172,7 +198,6 @@ Every port that calls an AI provider returns `usage` with its result, and the ca
 
 | Dependency | Why it has no port | How tests handle it |
 | --- | --- | --- |
-| Postgres (Drizzle, pgvector, full-text) | Runs locally; a port would have one real adapter (ADR-0002) | PGlite with `@electric-sql/pglite-pgvector`; it includes the `portuguese` text-search config |
 | pdf.js, pdf-lib | In-process libraries | Fixture PDFs |
 | Better Auth | Used only in `apps/web`; modules receive a `LawyerId`, which is the Better Auth user id | Module tests pass a `LawyerId`; `apps/web` tests sign in through Better Auth on PGlite, or on its in-memory adapter in demo mode |
 | Trigger.dev task definitions | They are the `Jobs` adapter, not domain code | The inline `Jobs` adapter |
@@ -221,7 +246,8 @@ Dependencies point one way: `apps` import `core` and `adapters`; `adapters` impo
 
 ## Testing
 
-- **The interface is the test surface.** Each module is tested through its `index.ts` with local Postgres and the fake adapters. No tests reach into a module's internals.
+- **The interface is the test surface.** Each module is tested through its `index.ts` with in-memory repositories and the fake adapters. No tests reach into a module's internals.
+- **Repositories are tested on Postgres.** Each Drizzle repository has integration tests on PGlite, and a contract test that its fake passes too.
 - **One in-process end-to-end path.** With the inline `Jobs` adapter, a single test can upload a fixture PDF, run ingestion and ask a question without any network.
 - **Fixture PDFs:** a short digital file, a short scanned file and a two-column file.
 - **Answering's key tests:** a scripted model answer with one uncited statement must yield `dropped: 1`, and every citation must resolve to the page and boxes of its source block.
@@ -232,7 +258,7 @@ Dependencies point one way: `apps` import `core` and `adapters`; `adapters` impo
 
 | PRD | Now | Why |
 | --- | --- | --- |
-| `SearchIndex`, database, `TextExtractor` and `Auth` listed as ports | Not ports | Each would have one real adapter, and each can be tested locally or lives only in the app |
+| `SearchIndex`, database, `TextExtractor` and `Auth` listed as ports | Not ports, except the database: each module has a repository port (ADR-0006) | `TextExtractor` and `Auth` would have one real adapter, or live only in the app; search is a method of Answering's repository |
 | One generic `LlmClient.complete(role, request)` | Two ports shaped by use: `CitingModel` and `MapExtractor` | A generic port makes every caller handle citations and output parsing; the narrow ports keep that inside the adapter |
 | Answers stream as text | Answers stream statement by statement | A statement can be shown only after its citations are known (ADR-0003) |
 | Quota checked when the upload starts | Checked at start with the browser's page count, and checked again at finish with the real count | The page count isn't known on the server until the upload ends |

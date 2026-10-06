@@ -2,7 +2,7 @@
 
 **What to build:** A signed-in lawyer uploads a real PDF of up to 500 MB and 5,000 pages. The browser reads the page count first, so a case file over the page quota is refused before any bytes move. Parts go straight from the browser to object storage, and an interrupted upload resumes where it stopped. Finishing the upload recounts the pages, re-checks and charges the quota, sets the case file to queued and asks `Jobs` to start ingestion. The real `CaseFiles` replaces the demo version for upload, list and view; the demo `Answering` stays. Locally, object storage is MinIO from Docker Compose.
 
-**Blocked by:** 02
+**Blocked by:** 02, 17
 
 **Status:** ready-for-agent
 

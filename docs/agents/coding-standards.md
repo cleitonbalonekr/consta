@@ -7,6 +7,7 @@ Rules for every change in `apps/` and `packages/`. The architecture they serve i
 - **Deep modules** (single responsibility, small interfaces). New behaviour goes inside an existing module's implementation, behind its `index.ts`. Grow a module's interface only when a caller needs the new capability.
 - **Inject dependencies through `create*` factories** (dependency inversion). Modules receive ports and the database as arguments; only the composition roots (`apps/web/src/server/container.ts`, `apps/jobs/src/container.ts`) choose adapters.
 - **A port earns its place with two adapters**: production and fake. With one real implementation, call it directly.
+- **SQL lives only in repositories** (ADR-0006). Each module reads and writes Postgres through its own repository port; a Drizzle adapter implements it, an in-memory fake stands in for it in unit tests. Migrations and tests may also touch the database. Work that must commit together runs inside `UnitOfWork.run`, which hands it transaction-bound repositories.
 - **Build for the current ticket** (YAGNI). Ship what its acceptance criteria need. Options, flags, parameters and abstractions arrive with the ticket that asks for them.
 - **One home per rule** (DRY). Domain rules (citations, page quota, status transitions) live in exactly one module. For code, extract on the third copy, and only when the copies share a meaning, not just a shape.
 - **The simplest code that passes the tests** (KISS). Plain functions and data first; a class when it holds state, as the fakes do.

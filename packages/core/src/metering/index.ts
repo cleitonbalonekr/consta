@@ -1,9 +1,6 @@
-import { and, eq, gte, sql, sum } from "drizzle-orm";
-import { schema } from "../db";
-import type { Db } from "../db";
-import type { Usage } from "../ports";
+import type { UnitOfWork, Usage } from "../ports";
 import { NotImplemented } from "../shared";
-import type { CaseFileId, LawyerId } from "../shared";
+import type { CaseFileId, LawyerId, Plan } from "../shared";
 
 /** Records what paid providers cost and how much of a lawyer's page quota is left. */
 export interface Metering {
@@ -25,40 +22,59 @@ export interface Metering {
   chargePages(lawyer: LawyerId, caseFileId: CaseFileId, pages: number): Promise<void>;
 }
 
-export type MeteringDeps = { db: Db };
+/** Metering's tables, behind a port so Metering holds no SQL (ADR-0006). */
+export interface MeteringRepository {
+  /** The lawyer's plan, or null when they have none. */
+  findPlan(lawyer: LawyerId): Promise<LawyerPlan | null>;
+  /** Stores the plan unless the lawyer already has one. */
+  insertPlanIfMissing(lawyer: LawyerId, plan: LawyerPlan): Promise<void>;
+  /** Pages charged to the lawyer at or after `since`. */
+  pagesChargedSince(lawyer: LawyerId, since: Date): Promise<number>;
+}
+
+export type LawyerPlan = { plan: Plan; pageQuota: number };
+
+export type MeteringDeps = { uow: UnitOfWork; now?: () => Date };
 
 /** prd-mvp.md, Monetization: a Trial covers one case file of up to 500 pages. */
 const TRIAL_PAGE_QUOTA = 500;
 
-// Lawyers are in Brazil, so the monthly quota renews at midnight in São Paulo.
-const startOfThisMonth = sql`date_trunc('month', now() at time zone 'America/Sao_Paulo') at time zone 'America/Sao_Paulo'`;
-
-export function createMetering({ db }: MeteringDeps): Metering {
-  const pagesChargedThisMonth = async (lawyer: LawyerId) => {
-    const [row] = await db
-      .select({ pages: sum(schema.quotaCharge.pages).mapWith(Number) })
-      .from(schema.quotaCharge)
-      .where(and(eq(schema.quotaCharge.lawyerId, lawyer), gte(schema.quotaCharge.createdAt, startOfThisMonth)));
-    return row?.pages ?? 0;
-  };
-
+export function createMetering({ uow, now = () => new Date() }: MeteringDeps): Metering {
   return {
     async record() {
       throw new NotImplemented("Metering.record");
     },
     async startTrial(lawyer) {
-      await db.insert(schema.lawyerPlan).values({ lawyerId: lawyer, plan: "trial", pageQuota: TRIAL_PAGE_QUOTA }).onConflictDoNothing();
+      await uow.run((repos) => repos.metering.insertPlanIfMissing(lawyer, { plan: "trial", pageQuota: TRIAL_PAGE_QUOTA }));
     },
-    async pagesLeft(lawyer) {
-      const [plan] = await db
-        .select({ pageQuota: schema.lawyerPlan.pageQuota })
-        .from(schema.lawyerPlan)
-        .where(eq(schema.lawyerPlan.lawyerId, lawyer));
-      if (!plan) return 0;
-      return plan.pageQuota - (await pagesChargedThisMonth(lawyer));
+    pagesLeft(lawyer) {
+      return uow.run(async (repos) => {
+        const plan = await repos.metering.findPlan(lawyer);
+        if (!plan) return 0;
+        return plan.pageQuota - (await repos.metering.pagesChargedSince(lawyer, startOfMonthInSaoPaulo(now())));
+      });
     },
     async chargePages() {
       throw new NotImplemented("Metering.chargePages");
     },
   };
+}
+
+const SAO_PAULO = "America/Sao_Paulo";
+
+/** Lawyers are in Brazil, so the monthly quota renews at midnight in São Paulo. */
+function startOfMonthInSaoPaulo(moment: Date): Date {
+  const parts = new Intl.DateTimeFormat("en-US", { timeZone: SAO_PAULO, year: "numeric", month: "numeric" }).formatToParts(moment);
+  const part = (type: "year" | "month") => Number(parts.find((p) => p.type === type)!.value);
+  const midnightAsUtc = Date.UTC(part("year"), part("month") - 1, 1);
+  return new Date(midnightAsUtc - offsetMs(midnightAsUtc));
+}
+
+/** São Paulo's offset from UTC at a moment, e.g. -3 hours as -10_800_000. */
+function offsetMs(moment: number) {
+  const name = new Intl.DateTimeFormat("en-US", { timeZone: SAO_PAULO, timeZoneName: "longOffset" })
+    .formatToParts(moment)
+    .find((p) => p.type === "timeZoneName")!.value; // "GMT-03:00"
+  const [, sign, hours, minutes] = /GMT([+-])(\d{2}):(\d{2})/.exec(name)!;
+  return (sign === "-" ? -1 : 1) * (Number(hours) * 60 + Number(minutes)) * 60_000;
 }
