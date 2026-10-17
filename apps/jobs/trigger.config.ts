@@ -1,7 +1,8 @@
 import { defineConfig } from "@trigger.dev/sdk";
 
 export default defineConfig({
-  project: process.env.TRIGGER_PROJECT_REF ?? "proj_set_TRIGGER_PROJECT_REF",
+  project: "proj_jgnemgausuxywdmmsoek",
+  runtime: "node-24",
   dirs: ["./src/trigger"],
   // A 3,600-page case file takes 20 to 40 minutes end to end.
   maxDuration: 60 * 60,

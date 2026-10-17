@@ -18,21 +18,30 @@ packages/evals      quality runs against real providers (run by hand)
 
 ## Getting started
 
+You need a Trigger.dev account with access to the Consta project. Do these steps one time:
+
+1. Run `pnpm --filter @consta/jobs exec trigger login`.
+2. Copy `.env.example` to `.env`.
+3. In the Trigger.dev dashboard, open the project's API keys for the "Development" environment. Copy the secret key (`tr_dev_...`) into `TRIGGER_SECRET_KEY` in `.env`.
+
+Then:
+
 ```bash
 nvm use                       # Node 24
 pnpm install
 docker compose up -d          # Postgres with pgvector on localhost:5432, MinIO on localhost:9000
 pnpm db:migrate
-pnpm dev                      # http://localhost:3000
+pnpm dev:jobs                 # first terminal: runs the Trigger.dev tasks on this machine
+pnpm dev                      # second terminal: http://localhost:3000
 ```
 
-The app always uses the real modules on Postgres and MinIO. With fake adapters (`CONSTA_ADAPTERS=fake`, the default), you do not need accounts or keys. Fakes replace the paid services (AI providers and email), and the app uses the MinIO settings of `docker-compose.yml`.
+The app always uses the real modules on Postgres and MinIO, and it always sends ingestion to Trigger.dev. With fake adapters (`CONSTA_ADAPTERS=fake`, the default), you do not need keys for the paid services. Fakes replace the AI providers and email, and the app uses the MinIO settings of `docker-compose.yml`. `pnpm dev` and `pnpm dev:jobs` read the `.env` at the repository root.
 
 Sign in with an email address. With fake adapters, the app does not send email. The terminal that runs `pnpm dev` shows the sign-in link as `Sign-in link for <email>: <url>`. Open this link to go to your case files.
 
-Until ticket 05, an uploaded case file stops at "queued": the fake `Jobs` adapter records the request to start ingestion, but it does not start ingestion.
+After an upload, the "View runs" link of `pnpm dev:jobs` shows the `ingest-case-file` run. Until ticket 05, this run fails, because Ingestion is not implemented yet, and the case file stays at "queued".
 
-To change a setting, copy `.env.example` to `.env` and edit the copy. The MinIO console is at http://localhost:9001 (user `consta`, password `consta-secret`).
+To change a setting, edit `.env`. The MinIO console is at http://localhost:9001 (user `consta`, password `consta-secret`).
 
 ## Checks
 
@@ -61,7 +70,7 @@ pnpm --filter @consta/web exec playwright install --with-deps chromium   # once
 CI=1 pnpm test:e2e            # CI=1 builds a fresh server instead of reusing one on port 3100
 ```
 
-None of these need accounts or keys. The S3 contract test and E2E need Postgres and MinIO from `docker compose up -d`. The CI workflow does not start these services yet, so these checks fail in CI until it does.
+None of these need accounts or keys: the E2E server sets `CONSTA_JOBS=recording`, so it records the request to start ingestion and does not send it to Trigger.dev. The S3 contract test and E2E need Postgres and MinIO from `docker compose up -d`. The CI workflow does not start these services yet, so these checks fail in CI until it does.
 
 ## Deployment
 

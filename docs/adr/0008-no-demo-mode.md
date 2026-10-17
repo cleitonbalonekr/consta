@@ -13,6 +13,6 @@ The web app always uses the real modules on Postgres and S3-compatible storage. 
 
 ## Consequences
 
-- Local runs and E2E need Postgres and MinIO: `docker compose up -d`. Fake adapters (`CONSTA_ADAPTERS=fake`) still replace the paid services, so no accounts or keys are necessary.
+- Local runs and E2E need Postgres and MinIO: `docker compose up -d`. Fake adapters (`CONSTA_ADAPTERS=fake`) still replace the paid services, so E2E needs no accounts or keys. `pnpm dev` needs a Trigger.dev account (ADR-0009).
 - E2E journeys make the state they need through the app. A journey that needs a state that the app cannot make yet (a ready case file before tickets 05 and 07) stays in the suite as `test.fixme()`.
 - The CI workflow must start Postgres and MinIO as service containers before it runs the S3 contract test and E2E.

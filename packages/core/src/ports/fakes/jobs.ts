@@ -13,7 +13,7 @@ export class InlineJobs implements Jobs {
   }
 }
 
-/** Records each request to start ingestion and runs nothing. Fake mode uses it until Ingestion exists (ticket 05). */
+/** Records each request to start ingestion and runs nothing. The E2E server uses it (CONSTA_JOBS=recording). */
 export class RecordingJobs implements Jobs {
   readonly started: CaseFileId[] = [];
 

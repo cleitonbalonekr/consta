@@ -1,6 +1,6 @@
 # 05: Ingest digital pages with progress
 
-**What to build:** After an upload, ingestion reads every digital page: its text and block positions, split into passages that never cross a page break, each embedded for search. The lawyer watches "page N of M" advance and can close the tab. A page range that fails retries three times; after that the case file shows failed with a reason the lawyer can read. In production the ranges run in parallel as Trigger.dev tasks; locally, fake mode runs ingestion in-process and real-adapter mode uses `trigger dev`. Until ticket 09, the map step marks the case file ready with an empty document map. This is the Phase 1 gate in `prd-mvp.md`.
+**What to build:** After an upload, ingestion reads every digital page: its text and block positions, split into passages that never cross a page break, each embedded for search. The lawyer watches "page N of M" advance and can close the tab. A page range that fails retries three times; after that the case file shows failed with a reason the lawyer can read. In production the ranges run in parallel as Trigger.dev tasks; locally, both adapter modes use `pnpm dev:jobs` (`trigger dev`) against the Trigger.dev dev environment (ADR-0009). The E2E server has no Trigger.dev key, so it runs ingestion in-process with the inline `Jobs` adapter: `CONSTA_JOBS=inline` replaces `recording`. Until ticket 09, the map step marks the case file ready with an empty document map. This is the Phase 1 gate in `prd-mvp.md`.
 
 **Blocked by:** 04
 

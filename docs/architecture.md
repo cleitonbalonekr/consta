@@ -183,7 +183,7 @@ Each port is a real seam: it has a production adapter and an in-memory fake used
 | `Reranker` | Orders passages for a question | Voyage | Keeps the input order |
 | `CitingModel` | Answers from source blocks, returning text with the ids of the sources it cites | Claude with native citations | Scripted answers, including uncited ones |
 | `MapExtractor` | Reads a window of pages and returns peças and facts | Claude Haiku | Scripted peças and facts |
-| `Jobs` | Starts ingestion of a case file | Trigger.dev, with the case file id as the idempotency key | Inline: runs plan, ranges and map in-process. Recording: records the request only (fake mode until ticket 05) |
+| `Jobs` | Starts ingestion of a case file | Trigger.dev, with the case file id as the idempotency key, in both adapter modes (ADR-0009) | Inline: runs plan, ranges and map in-process. Recording: records the request only (the E2E server until ticket 05) |
 | `Mailer` | Sends a templated email | Resend | In-memory outbox |
 | Repositories (one per module) | Read and write the module's tables, including hybrid search | Drizzle on Postgres | In-memory tables |
 | `UnitOfWork` | Runs work in one transaction with repositories bound to it | Drizzle transaction | Copies the in-memory state and restores it if the work throws |

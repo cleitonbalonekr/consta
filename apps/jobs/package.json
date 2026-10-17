@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "trigger dev",
+    "dev": "trigger dev --env-file ../../.env",
     "deploy": "trigger deploy",
     "typecheck": "tsc",
     "lint": "eslint src"

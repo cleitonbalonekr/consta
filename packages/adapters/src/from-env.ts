@@ -6,12 +6,14 @@ import {
   FakeOcr,
   FakeReranker,
   InMemoryMailer,
+  RecordingJobs,
 } from "@consta/core/fakes";
-import type { CitingModel, Embedder, FileStore, Mailer, MapExtractor, Ocr, Reranker } from "@consta/core/ports";
+import type { CitingModel, Embedder, FileStore, Jobs, Mailer, MapExtractor, Ocr, Reranker } from "@consta/core/ports";
 import { createClaudeCitingModel, createClaudeMapExtractor } from "./anthropic";
 import { createMistralOcr } from "./mistral-ocr";
 import { createResendMailer } from "./resend-mailer";
 import { S3FileStore } from "./s3-file-store";
+import { TriggerJobs } from "./trigger-jobs";
 import { createVoyageEmbedder, createVoyageReranker } from "./voyage";
 
 export type ExternalAdapters = {
@@ -64,6 +66,18 @@ export function adaptersFromEnv(env: Env): ExternalAdapters {
 export function mailerFromEnv(env: Env): Mailer {
   if (usesFakeAdapters(env)) return new InMemoryMailer(console.info);
   return createResendMailer({ apiKey: required(env, "RESEND_API_KEY"), from: env.EMAIL_FROM ?? "Consta <noreply@consta.app>" });
+}
+
+/**
+ * The Jobs adapter for the web app. Trigger.dev in both modes: locally, `pnpm dev:jobs`
+ * runs the tasks on this machine for the Trigger.dev dev environment. CONSTA_JOBS=recording
+ * only records the request, for the E2E server, which has no Trigger.dev key.
+ */
+export function jobsFromEnv(env: Env): Jobs {
+  if (env.CONSTA_JOBS === "recording") return new RecordingJobs();
+  // The Trigger.dev SDK reads the key from process.env itself; this check fails at start instead of at the first upload.
+  required(env, "TRIGGER_SECRET_KEY");
+  return new TriggerJobs();
 }
 
 /** The MinIO of docker-compose.yml, which fake mode uses when no S3 setting is given. */
