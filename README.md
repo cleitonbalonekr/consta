@@ -70,7 +70,7 @@ pnpm --filter @consta/web exec playwright install --with-deps chromium   # once
 CI=1 pnpm test:e2e            # CI=1 builds a fresh server instead of reusing one on port 3100
 ```
 
-None of these need accounts or keys: the E2E server sets `CONSTA_JOBS=recording`, so it records the request to start ingestion and does not send it to Trigger.dev. The S3 contract test and E2E need Postgres and MinIO from `docker compose up -d`. The CI workflow does not start these services yet, so these checks fail in CI until it does.
+None of these need accounts or keys: the E2E server sets `CONSTA_JOBS=recording`, so it records the request to start ingestion and does not send it to Trigger.dev. Locally, the S3 contract test and E2E need Postgres and MinIO from `docker compose up -d`. CI starts the same images as service containers.
 
 ## Deployment
 
