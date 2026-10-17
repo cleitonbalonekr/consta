@@ -40,7 +40,7 @@ export const test = base.extend<Fixtures>({
 
 export { expect } from "@playwright/test";
 
-/** A file name no other journey uses, since journeys share one demo server. */
+/** A file name no other journey uses, since journeys share one server and database. */
 export function uniqueName(prefix: string) {
   return `${prefix} ${Date.now()}-${Math.random().toString(36).slice(2, 7)}.pdf`;
 }

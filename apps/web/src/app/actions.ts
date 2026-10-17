@@ -1,6 +1,6 @@
 "use server";
 
-import { CaseFileId, QuotaExceeded } from "@consta/core";
+import { CaseFileId, InvalidFileSize, InvalidPageCount, QuotaExceeded } from "@consta/core";
 import { revalidatePath } from "next/cache";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
@@ -8,9 +8,13 @@ import { SIGN_IN_PATH } from "@/lib/routes";
 import { container } from "@/server/container";
 import { currentLawyer } from "@/server/lawyer";
 
-export type StartUploadResult =
-  | { ok: true; caseFileId: string }
-  | { ok: false; reason: "quota-exceeded"; pagesNeeded: number; pagesLeft: number };
+/** Why a case file was refused. The lawyer sees each one; nothing else is a refusal. */
+export type UploadRefusal =
+  | { ok: false; reason: "quota-exceeded"; pagesNeeded: number; pagesLeft: number }
+  | { ok: false; reason: "too-many-pages" }
+  | { ok: false; reason: "too-large" };
+
+export type StartUploadResult = { ok: true; caseFileId: string } | UploadRefusal;
 
 /** Opens the upload of a new case file. The page count comes from the browser's pdf.js. */
 export async function startUpload(file: { name: string; bytes: number; pages: number }): Promise<StartUploadResult> {
@@ -21,8 +25,7 @@ export async function startUpload(file: { name: string; bytes: number; pages: nu
     const { caseFileId } = await container().caseFiles.startUpload(await currentLawyer(), { name, bytes, pages });
     return { ok: true, caseFileId };
   } catch (error) {
-    if (!(error instanceof QuotaExceeded)) throw error;
-    return { ok: false, reason: "quota-exceeded", pagesNeeded: error.pagesNeeded, pagesLeft: error.pagesLeft };
+    return refusal(error);
   }
 }
 
@@ -32,10 +35,25 @@ export async function signUploadPart(caseFileId: string, partNumber: number): Pr
   return container().caseFiles.signUploadPart(await currentLawyer(), id, requirePositiveInteger(partNumber, "partNumber"));
 }
 
-/** Closes the upload once every part is stored, which starts ingestion. */
-export async function finishUpload(caseFileId: string): Promise<void> {
-  await container().caseFiles.finishUpload(await currentLawyer(), CaseFileId(requireText(caseFileId, "caseFileId")));
-  revalidatePath("/");
+/** The numbers of the parts already stored, so an interrupted upload sends only the others. */
+export async function uploadedParts(caseFileId: string): Promise<number[]> {
+  const parts = await container().caseFiles.uploadedParts(await currentLawyer(), CaseFileId(requireText(caseFileId, "caseFileId")));
+  return parts.map((part) => part.partNumber);
+}
+
+/**
+ * Closes the upload once every part is stored, which starts ingestion. The stored
+ * PDF's page count can still exceed the quota, which refuses it.
+ */
+export async function finishUpload(caseFileId: string): Promise<{ ok: true } | UploadRefusal> {
+  try {
+    await container().caseFiles.finishUpload(await currentLawyer(), CaseFileId(requireText(caseFileId, "caseFileId")));
+  } catch (error) {
+    return refusal(error);
+  } finally {
+    revalidatePath("/");
+  }
+  return { ok: true };
 }
 
 export async function removeCaseFile(caseFileId: string): Promise<void> {
@@ -47,6 +65,15 @@ export async function removeCaseFile(caseFileId: string): Promise<void> {
 export async function signOut(): Promise<void> {
   await container().auth.api.signOut({ headers: await headers() });
   redirect(SIGN_IN_PATH);
+}
+
+function refusal(error: unknown): UploadRefusal {
+  if (error instanceof QuotaExceeded) {
+    return { ok: false, reason: "quota-exceeded", pagesNeeded: error.pagesNeeded, pagesLeft: Math.max(0, error.pagesLeft) };
+  }
+  if (error instanceof InvalidPageCount) return { ok: false, reason: "too-many-pages" };
+  if (error instanceof InvalidFileSize) return { ok: false, reason: "too-large" };
+  throw error;
 }
 
 function requireText(value: unknown, name: string): string {

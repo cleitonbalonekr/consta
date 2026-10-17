@@ -1,0 +1,62 @@
+name: Deploy
+
+# A merge to main checks the commit, migrates production, deploys the tasks, then
+# deploys the web app, all from the same commit. Vercel's own Git deploy for main
+# is off (apps/web/vercel.json), so the web app never runs ahead of its schema.
+on:
+  push:
+    branches: [main]
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  checks:
+    uses: ./.github/workflows/ci.yml
+
+  deploy:
+    name: Migrate, deploy tasks, deploy web
+    needs: checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment:
+      name: production
+      url: ${{ vars.PRODUCTION_URL }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      # Migrations are backward-compatible (prd-mvp.md), so the old tasks and web app keep working meanwhile.
+      - name: Migrate the production database
+        run: pnpm db:migrate
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+
+      - name: Deploy the Trigger.dev tasks
+        run: pnpm --filter @consta/jobs run deploy
+        env:
+          TRIGGER_ACCESS_TOKEN: ${{ secrets.TRIGGER_ACCESS_TOKEN }}
+          TRIGGER_PROJECT_REF: ${{ vars.TRIGGER_PROJECT_REF }}
+
+      # The web app's runtime secrets come from Vercel's production settings, pulled here.
+      - name: Deploy the web app to Vercel
+        run: |
+          pnpm dlx vercel@latest pull --yes --environment=production --token="$VERCEL_TOKEN"
+          pnpm dlx vercel@latest build --prod --token="$VERCEL_TOKEN"
+          pnpm dlx vercel@latest deploy --prebuilt --prod --token="$VERCEL_TOKEN"
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID }}
+
+      # /api/health builds the real container, so a missing production variable fails here.
+      - name: Check the production URL
+        run: curl --fail --silent --show-error --retry 5 --retry-delay 5 --retry-all-errors "$PRODUCTION_URL/api/health"
+        env:
+          PRODUCTION_URL: ${{ vars.PRODUCTION_URL }}

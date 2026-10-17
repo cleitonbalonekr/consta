@@ -21,30 +21,50 @@ packages/evals      quality runs against real providers (run by hand)
 ```bash
 nvm use                       # Node 24
 pnpm install
-pnpm dev                      # http://localhost:3000, demo modules: no accounts, keys or Docker
-```
-
-Sign in with any email: with fake adapters (the default) no email is sent, and the sign-in link is printed in the terminal running `pnpm dev`, as `Sign-in link for <email>: <url>`. Open it to land on your case files.
-
-The web app serves in-memory demo modules by default (`CONSTA_MODULES=demo`): each lawyer starts with their own copy of a seeded case file backed by `apps/web/public/demo/autos-de-exemplo.pdf`, simulated ingestion and scripted answers. Lawyers and sessions live in memory too, so restarting the server signs everyone out. Uploading a file whose name contains `sem-cota` shows the quota-exceeded screen; one whose name contains `falha` fails halfway through ingestion. After editing the sample pages in `apps/web/src/server/demo/sample-pages.ts`, run `pnpm --filter @consta/web demo:pdf`.
-
-To run on the real modules instead:
-
-```bash
-cp .env.example .env          # set CONSTA_MODULES=real; CONSTA_ADAPTERS=fake needs no keys
-docker compose up -d          # Postgres with pgvector on localhost:5432
+docker compose up -d          # Postgres with pgvector on localhost:5432, MinIO on localhost:9000
 pnpm db:migrate
-pnpm dev
+pnpm dev                      # http://localhost:3000
 ```
+
+The app always uses the real modules on Postgres and MinIO. With fake adapters (`CONSTA_ADAPTERS=fake`, the default), you do not need accounts or keys. Fakes replace the paid services (AI providers and email), and the app uses the MinIO settings of `docker-compose.yml`.
+
+Sign in with an email address. With fake adapters, the app does not send email. The terminal that runs `pnpm dev` shows the sign-in link as `Sign-in link for <email>: <url>`. Open this link to go to your case files.
+
+Until ticket 05, an uploaded case file stops at "queued": the fake `Jobs` adapter records the request to start ingestion, but it does not start ingestion.
+
+To change a setting, copy `.env.example` to `.env` and edit the copy. The MinIO console is at http://localhost:9001 (user `consta`, password `consta-secret`).
 
 ## Checks
 
 ```bash
 pnpm typecheck
 pnpm lint                     # includes the module boundary rules
-pnpm test                     # unit, component and integration tiers; no Docker needed
+pnpm test                     # unit, component and integration tiers; the S3 contract test needs Docker Compose
 pnpm test:unit                # or one tier: test:component, test:integration
-pnpm test:e2e                 # Playwright against a production build in demo mode
+pnpm test:e2e                 # Playwright against a production build; needs Docker Compose
 ```
 
-The first E2E run needs a browser: `pnpm --filter @consta/web exec playwright install chromium`. Each journey signs in as a new lawyer through the link the server logs; Playwright writes the server's output to `apps/web/e2e-server.log` for that, so a server you start yourself on port 3100 must write its output there too.
+Before you run the S3 contract test or E2E, start the services with `docker compose up -d`. The E2E server applies the migrations before it starts. The first E2E run needs a browser: `pnpm --filter @consta/web exec playwright install chromium`. Each journey signs in as a new lawyer through the link the server logs; Playwright writes the server's output to `apps/web/e2e-server.log` for that, so a server you start yourself on port 3100 must write its output there too.
+
+## Continuous integration
+
+Every pull request runs `.github/workflows/ci.yml`. To reproduce it locally, from a clean install:
+
+```bash
+pnpm install --frozen-lockfile
+pnpm typecheck
+pnpm lint
+pnpm test:unit
+pnpm test:component
+pnpm test:integration         # PGlite in-process; the S3 contract test needs MinIO
+pnpm --filter @consta/web exec playwright install --with-deps chromium   # once
+CI=1 pnpm test:e2e            # CI=1 builds a fresh server instead of reusing one on port 3100
+```
+
+None of these need accounts or keys. The S3 contract test and E2E need Postgres and MinIO from `docker compose up -d`. The CI workflow does not start these services yet, so these checks fail in CI until it does.
+
+## Deployment
+
+A merge to `main` runs `.github/workflows/deploy.yml`: the CI checks, then `pnpm db:migrate` on production, then `trigger deploy`, then the Vercel production deploy, all from the same commit, and finally a request to `/api/health` on the production URL. Vercel's own Git deploy is off for `main` (`apps/web/vercel.json`) so the web app never ships ahead of its migrations; pull requests still get Vercel preview deploys.
+
+Production runs in São Paulo: Vercel functions in `gru1` and Neon in `aws-sa-east-1`. Runtime secrets live in the Vercel and Trigger.dev production settings; the deploy workflow's own secrets live in the GitHub `production` environment. `.env.example` lists every variable.

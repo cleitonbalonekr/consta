@@ -1,8 +1,12 @@
-import { SAMPLE_CASE_FILE_ID } from "../../support/sample-pdf";
-import { expect, test } from "../../support/fixtures";
+import { expect, test, uniqueName } from "../../support/fixtures";
 
-test.beforeEach(async ({ caseFile }) => {
-  await caseFile.goto(SAMPLE_CASE_FILE_ID);
+// Needs a ready case file and real answers: ingestion arrives with ticket 05, Answering with 07.
+test.fixme();
+
+test.beforeEach(async ({ caseFileList, caseFile }) => {
+  await caseFileList.goto();
+  await caseFileList.uploadAndOpen(uniqueName("Autos para perguntas"));
+  await expect(caseFile.documentMap).toBeVisible({ timeout: 60_000 });
 });
 
 test("asking about the whole case file streams cited statements, and a citation opens the viewer at its page", async ({

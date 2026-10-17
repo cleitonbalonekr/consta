@@ -85,13 +85,12 @@ Sketches. They name every fact a caller must know, including order and error mod
 
 ```ts
 // packages/core/src/case-files/index.ts
-export function createCaseFiles(deps: { uow: UnitOfWork; files: FileStore; jobs: Jobs; metering: Metering }): CaseFiles;
-
-export interface CaseFiles {
+export class CaseFiles {
+  constructor(deps: { uow: UnitOfWork; files: FileStore; jobs: Jobs; metering: Metering });
   /** The browser reads the page count with pdf.js first. Throws QuotaExceeded before any upload starts. */
   startUpload(lawyer: LawyerId, file: { name: string; bytes: number; pages: number }): Promise<{ caseFileId: CaseFileId; uploadId: string }>;
   signUploadPart(lawyer: LawyerId, caseFileId: CaseFileId, partNumber: number): Promise<string>;
-  uploadedParts(lawyer: LawyerId, caseFileId: CaseFileId): Promise<UploadedPart[]>; // lets Uppy resume
+  uploadedParts(lawyer: LawyerId, caseFileId: CaseFileId): Promise<UploadedPart[]>; // lets the browser resume
   /** Closes the upload, recounts pages, re-checks the quota, then starts ingestion. Idempotent. */
   finishUpload(lawyer: LawyerId, caseFileId: CaseFileId): Promise<CaseFileView>;
   view(lawyer: LawyerId, caseFileId: CaseFileId): Promise<CaseFileView>; // status, progress, document map
@@ -103,10 +102,9 @@ export interface CaseFiles {
 
 ```ts
 // packages/core/src/ingestion/index.ts
-export function createIngestion(deps: { uow: UnitOfWork; files: FileStore; ocr: Ocr; embedder: Embedder; extractor: MapExtractor; mailer: Mailer; metering: Metering }): Ingestion;
-
 /** Call order: plan, then ingestRange for every range (in parallel), then map. Any step may be retried. */
-export interface Ingestion {
+export class Ingestion {
+  constructor(deps: { uow: UnitOfWork; files: FileStore; ocr: Ocr; embedder: Embedder; extractor: MapExtractor; mailer: Mailer; metering: Metering });
   plan(caseFileId: CaseFileId): Promise<PageRange[]>;
   /** A retry replaces the pages and passages of that range only. */
   ingestRange(caseFileId: CaseFileId, range: PageRange): Promise<void>;
@@ -118,9 +116,8 @@ export interface Ingestion {
 
 ```ts
 // packages/core/src/answering/index.ts
-export function createAnswering(deps: { uow: UnitOfWork; embedder: Embedder; reranker: Reranker; model: CitingModel; metering: Metering }): Answering;
-
-export interface Answering {
+export class Answering {
+  constructor(deps: { uow: UnitOfWork; embedder: Embedder; reranker: Reranker; model: CitingModel; metering: Metering });
   ask(lawyer: LawyerId, question: QuestionInput): AsyncIterable<AnswerEvent>;
 }
 
@@ -141,9 +138,8 @@ export type Citation = { page: number; folha: string | null; quote: string; boxe
 
 ```ts
 // packages/core/src/metering/index.ts
-export function createMetering(deps: { uow: UnitOfWork }): Metering;
-
-export interface Metering {
+export class Metering {
+  constructor(deps: { uow: UnitOfWork });
   record(lawyer: LawyerId, caseFileId: CaseFileId | null, usage: Usage[]): Promise<void>;
   /** On a lawyer's first sign-in. A lawyer who already has a plan keeps it. */
   startTrial(lawyer: LawyerId): Promise<void>;
@@ -173,7 +169,7 @@ export type Repositories = {
 };
 ```
 
-A module reads and writes only its own repository from `repos`. To change another module's data, it calls that module's interface inside the same run. For example, `finishUpload` runs `metering.chargePages` and `repos.caseFiles.markQueued` in one run: the quota rule stays in Metering, and both writes commit or roll back together. Each module's repository type lives in its folder; the Drizzle adapters live in `src/db/repositories/`, the fakes in `src/ports/fakes/`.
+A module reads and writes only its own repository from `repos`. To change another module's data, it calls that module's interface inside the same run. For example, `finishUpload` runs `metering.chargePages` and `repos.caseFiles.markQueued` in one run: the quota rule stays in Metering, and both writes commit or roll back together. Calls to external services stay outside the run (ADR-0007): `finishUpload` asks `Jobs` to start ingestion only after the run commits. Each module's repository type lives in its folder; the Drizzle adapters live in `src/db/repositories/`, the fakes in `src/ports/fakes/`.
 
 ## Seams and adapters
 
@@ -181,13 +177,13 @@ Each port is a real seam: it has a production adapter and an in-memory fake used
 
 | Port | What it does | Production adapter | Test adapter |
 | --- | --- | --- | --- |
-| `FileStore` | Multipart upload, signed read URL, download, remove | S3-compatible client (Cloudflare R2 now, AWS S3 in São Paulo later) | In-memory store |
+| `FileStore` | Multipart upload, signed read URL, download, remove | S3-compatible client (MinIO locally, Cloudflare R2 now, AWS S3 in São Paulo later) | In-memory store |
 | `Ocr` | Reads a PDF of scanned pages into text blocks with bounding boxes and confidence | Mistral OCR | Returns fixture text |
 | `Embedder` | Embeds passages and questions | Voyage | Deterministic hash vectors |
 | `Reranker` | Orders passages for a question | Voyage | Keeps the input order |
 | `CitingModel` | Answers from source blocks, returning text with the ids of the sources it cites | Claude with native citations | Scripted answers, including uncited ones |
 | `MapExtractor` | Reads a window of pages and returns peças and facts | Claude Haiku | Scripted peças and facts |
-| `Jobs` | Starts ingestion of a case file | Trigger.dev | Inline: runs plan, ranges and map in-process |
+| `Jobs` | Starts ingestion of a case file | Trigger.dev, with the case file id as the idempotency key | Inline: runs plan, ranges and map in-process. Recording: records the request only (fake mode until ticket 05) |
 | `Mailer` | Sends a templated email | Resend | In-memory outbox |
 | Repositories (one per module) | Read and write the module's tables, including hybrid search | Drizzle on Postgres | In-memory tables |
 | `UnitOfWork` | Runs work in one transaction with repositories bound to it | Drizzle transaction | Copies the in-memory state and restores it if the work throws |
@@ -198,8 +194,8 @@ Every port that calls an AI provider returns `usage` with its result, and the ca
 
 | Dependency | Why it has no port | How tests handle it |
 | --- | --- | --- |
-| pdf.js, pdf-lib | In-process libraries | Fixture PDFs |
-| Better Auth | Used only in `apps/web`; modules receive a `LawyerId`, which is the Better Auth user id | Module tests pass a `LawyerId`; `apps/web` tests sign in through Better Auth on PGlite, or on its in-memory adapter in demo mode |
+| pdf.js, pdf-lib | In-process libraries. Case files counts the pages of a stored PDF with pdf.js, which reads only the byte ranges it needs through `FileStore.read` | Fixture PDFs, made with pdf-lib in the tests |
+| Better Auth | Used only in `apps/web`; modules receive a `LawyerId`, which is the Better Auth user id | Module tests pass a `LawyerId`; `apps/web` tests sign in through Better Auth on PGlite |
 | Trigger.dev task definitions | They are the `Jobs` adapter, not domain code | The inline `Jobs` adapter |
 
 If the Phase 1 test needs a Python extractor, it becomes an internal seam inside Ingestion, not a port in the module's interface.
@@ -214,14 +210,24 @@ stateDiagram-v2
   queued --> processing: first range starts
   processing --> mapping: all ranges done
   mapping --> ready: document map built
+  queued --> failed: ingestion fails before the first range
   processing --> failed: a range fails after 3 retries
   mapping --> failed
+  uploading --> deleting: remove, aborts the multipart upload
   ready --> deleting: remove
   failed --> deleting: remove
   deleting --> [*]
 ```
 
 Questions are accepted only in `ready`. Any other state makes `ask` return `refused: "not-ready"`.
+
+The `CaseFile` entity in the Case files module owns this lifecycle (ADR-0007). Each arrow is one of its methods, and a method throws `InvalidStatus` for a move that the diagram does not show. No other code sets a status.
+
+`finishUpload` does its work in this order:
+
+1. Outside a run: close the multipart upload and count the pages of the stored PDF. These are external calls, and a rollback cannot undo them.
+2. In one run: lock the case file row, charge the pages (`Metering.chargePages` locks the lawyer's plan row), call `CaseFile.queue` and save it.
+3. After the commit: ask `Jobs` to start ingestion. If `Jobs` fails, the case file stays `queued`. A new `finishUpload` asks again, and Trigger.dev starts ingestion only once.
 
 ## Repository layout
 

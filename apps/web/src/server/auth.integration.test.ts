@@ -1,18 +1,18 @@
-import { createMetering, LawyerId } from "@consta/core";
-import { createDrizzleUnitOfWork, schema } from "@consta/core/db";
+import { LawyerId, Metering } from "@consta/core";
+import { DrizzleUnitOfWork, schema } from "@consta/core/db";
 import { InMemoryMailer } from "@consta/core/fakes";
 import { createTestDb } from "@consta/core/testing";
 import { describe, expect, it } from "vitest";
-import { createAuth, createAuthMemory } from "./auth";
+import { createAuth } from "./auth";
 import type { Auth } from "./auth";
 
 const options = { secret: "a-test-secret-that-is-long-enough-for-better-auth", baseURL: "http://localhost:3000", limitSignIns: false };
 
 async function onPostgres() {
   const db = await createTestDb();
-  const metering = createMetering({ uow: createDrizzleUnitOfWork(db) });
+  const metering = new Metering({ uow: new DrizzleUnitOfWork(db) });
   const mailer = new InMemoryMailer();
-  return { db, metering, mailer, auth: createAuth({ ...options, database: { db }, mailer, metering }) };
+  return { db, metering, mailer, auth: createAuth({ ...options, db, mailer, metering }) };
 }
 
 const lastSignInLink = (mailer: InMemoryMailer, email: string) =>
@@ -54,16 +54,5 @@ describe("sign-in with a magic link", () => {
     expect(await db.select({ lawyerId: schema.lawyerPlan.lawyerId, plan: schema.lawyerPlan.plan }).from(schema.lawyerPlan)).toEqual([
       { lawyerId: first, plan: "trial" },
     ]);
-  });
-
-  it("keeps lawyers in memory in demo mode, with no plans", async () => {
-    const mailer = new InMemoryMailer();
-    const auth = createAuth({ ...options, database: { memory: createAuthMemory() }, mailer, metering: null });
-
-    const ana = await signIn(auth, mailer, "ana@example.com");
-    const bia = await signIn(auth, mailer, "bia@example.com");
-
-    expect(ana).not.toBe(bia);
-    expect(await signIn(auth, mailer, "ana@example.com")).toBe(ana);
   });
 });

@@ -4,7 +4,7 @@ export { FakeEmbedder } from "./embedder";
 export { FakeReranker } from "./reranker";
 export { FakeCitingModel } from "./citing-model";
 export { FakeMapExtractor } from "./map-extractor";
-export { InlineJobs } from "./jobs";
+export { InlineJobs, RecordingJobs } from "./jobs";
 export { InMemoryMailer } from "./mailer";
 export { InMemoryUnitOfWork } from "./unit-of-work";
 export type { InMemoryState } from "./unit-of-work";

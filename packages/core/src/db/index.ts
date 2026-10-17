@@ -4,7 +4,7 @@ import type * as schema from "./schema";
 export * as schema from "./schema";
 export { EMBEDDING_DIMENSIONS } from "./schema";
 export { createDb } from "./client";
-export { createDrizzleUnitOfWork } from "./repositories/unit-of-work";
+export { DrizzleUnitOfWork } from "./repositories/unit-of-work";
 
 /**
  * Any Drizzle Postgres database with our schema: node-postgres or Neon in

@@ -1,5 +1,20 @@
+import { InvalidPageRange } from "./errors";
+
 /** Inclusive range of page numbers, counted from 1 by position in the PDF. */
-export type PageRange = { first: number; last: number };
+export class PageRange {
+  private constructor(
+    readonly first: number,
+    readonly last: number,
+  ) {}
+
+  /** Throws InvalidPageRange unless `first` is 1 or more and not more than `last`. */
+  static from(first: number, last: number): PageRange {
+    if (!Number.isInteger(first) || !Number.isInteger(last) || first < 1 || first > last) {
+      throw new InvalidPageRange(first, last);
+    }
+    return new PageRange(first, last);
+  }
+}
 
 /** A rectangle on a page, in fractions of the page width and height (0 to 1, origin top-left). */
 export type Box = { x0: number; y0: number; x1: number; y1: number };

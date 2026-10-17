@@ -1,3 +1,4 @@
+import type { CaseFileRepository } from "../case-files";
 import type { MeteringRepository } from "../metering";
 
 /**
@@ -14,5 +15,6 @@ export interface UnitOfWork {
  * writes only its own; it changes another module's data through that module's interface.
  */
 export type Repositories = {
+  caseFiles: CaseFileRepository;
   metering: MeteringRepository;
 };

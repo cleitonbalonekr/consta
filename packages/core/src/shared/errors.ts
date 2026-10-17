@@ -24,6 +24,30 @@ export class InvalidStatus extends DomainError {
   override name = "InvalidStatus";
 }
 
+/** A page range must start at page 1 or later and must not end before it starts. */
+export class InvalidPageRange extends DomainError {
+  override name = "InvalidPageRange";
+  constructor(first: number, last: number) {
+    super(`Pages ${first} to ${last} are not a valid page range.`);
+  }
+}
+
+/** A case file must have from 1 to 5,000 pages. */
+export class InvalidPageCount extends DomainError {
+  override name = "InvalidPageCount";
+  constructor(readonly pages: number) {
+    super(`A case file of ${pages} pages is not accepted.`);
+  }
+}
+
+/** A case file must have from 1 byte to 500 MB. */
+export class InvalidFileSize extends DomainError {
+  override name = "InvalidFileSize";
+  constructor(readonly bytes: number) {
+    super(`A case file of ${bytes} bytes is not accepted.`);
+  }
+}
+
 /** Placeholder for module methods that the build sequence hasn't reached yet. */
 export class NotImplemented extends Error {
   override name = "NotImplemented";

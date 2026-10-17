@@ -274,5 +274,9 @@ export const quotaCharge = pgTable(
     pages: integer("pages").notNull(),
     createdAt: createdAt(),
   },
-  (t) => [index("quota_charge_lawyer_created_idx").on(t.lawyerId, t.createdAt)],
+  (t) => [
+    index("quota_charge_lawyer_created_idx").on(t.lawyerId, t.createdAt),
+    // One charge per case file, so a retried finish can't charge twice (Metering.chargePages).
+    uniqueIndex("quota_charge_case_file_idx").on(t.caseFileId),
+  ],
 );

@@ -1,11 +1,12 @@
 import { describe, expect, it } from "vitest";
+import { CaseFileId } from "../../shared";
 import type { LawyerId } from "../../shared";
 import type { UnitOfWork } from "../unit-of-work";
 
 export type MeteringRepositorySetup = () => Promise<{
   uow: UnitOfWork;
   newLawyer: () => Promise<LawyerId>;
-  /** Seeds a quota charge; no repository method writes one until chargePages (ticket 04). */
+  /** Seeds a quota charge at a given moment, which insertCharge can't choose. */
   addCharge: (lawyer: LawyerId, pages: number, createdAt: Date) => Promise<void>;
 }>;
 
@@ -48,6 +49,39 @@ export function meteringRepositoryContract(setup: MeteringRepositorySetup) {
       const lawyer = await newLawyer();
 
       expect(await uow.run((repos) => repos.metering.pagesChargedSince(lawyer, new Date(0)))).toBe(0);
+    });
+
+    it("locks and returns the lawyer's plan, or null when they have none", async () => {
+      const { uow, newLawyer } = await setup();
+      const [lawyer, other] = [await newLawyer(), await newLawyer()];
+      await uow.run((repos) => repos.metering.insertPlanIfMissing(lawyer, { plan: "trial", pageQuota: 500 }));
+
+      expect(await uow.run((repos) => repos.metering.lockPlan(lawyer))).toEqual({ plan: "trial", pageQuota: 500 });
+      expect(await uow.run((repos) => repos.metering.lockPlan(other))).toBeNull();
+    });
+
+    it("stores one charge per case file and ignores a second one", async () => {
+      const { uow, newLawyer } = await setup();
+      const lawyer = await newLawyer();
+      const caseFileId = CaseFileId(crypto.randomUUID());
+
+      await uow.run(async ({ metering }) => {
+        await metering.insertCharge({ lawyer, caseFileId, pages: 120 });
+        await metering.insertCharge({ lawyer, caseFileId, pages: 120 });
+      });
+
+      expect(await uow.run((repos) => repos.metering.pagesChargedSince(lawyer, new Date(0)))).toBe(120);
+    });
+
+    it("tells whether a case file is charged", async () => {
+      const { uow, newLawyer } = await setup();
+      const lawyer = await newLawyer();
+      const [charged, notCharged] = [CaseFileId(crypto.randomUUID()), CaseFileId(crypto.randomUUID())];
+
+      await uow.run((repos) => repos.metering.insertCharge({ lawyer, caseFileId: charged, pages: 3 }));
+
+      expect(await uow.run((repos) => repos.metering.isCharged(charged))).toBe(true);
+      expect(await uow.run((repos) => repos.metering.isCharged(notCharged))).toBe(false);
     });
   });
 }

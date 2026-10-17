@@ -1,5 +1,7 @@
-import { SAMPLE_CASE_FILE_ID } from "../../support/sample-pdf";
 import { expect, test, uniqueEmail } from "../../support/fixtures";
+
+/** Any case file id: signed-out visitors never learn whether it exists. */
+const SOME_CASE_FILE_ID = "6f1c2a52-8a3e-4c41-9f0e-2d7b5a1c9e40";
 
 test.describe("signed out", () => {
   test.use({ signedIn: false });
@@ -12,16 +14,16 @@ test.describe("signed out", () => {
     await signIn.openLoggedLink(email);
 
     await expect(page).toHaveURL("/");
-    await expect(caseFileList.row(SAMPLE_CASE_FILE_ID)).toBeVisible();
+    await expect(caseFileList.emptyList).toBeVisible();
     await expect(header.signedInEmail).toHaveText(email);
   });
 
   test("every app route sends a signed-out visitor to sign-in", async ({ page }) => {
-    for (const path of ["/", `/autos/${SAMPLE_CASE_FILE_ID}`]) {
+    for (const path of ["/", `/autos/${SOME_CASE_FILE_ID}`]) {
       await page.goto(path);
       await expect(page).toHaveURL("/entrar");
     }
-    const question = await page.request.post(`/api/case-files/${SAMPLE_CASE_FILE_ID}/questions`, {
+    const question = await page.request.post(`/api/case-files/${SOME_CASE_FILE_ID}/questions`, {
       data: { scope: { kind: "whole-file" }, text: "Do que trata a ação?" },
       maxRedirects: 0,
     });

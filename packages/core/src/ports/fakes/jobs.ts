@@ -12,3 +12,12 @@ export class InlineJobs implements Jobs {
     await this.runIngestion()(caseFileId);
   }
 }
+
+/** Records each request to start ingestion and runs nothing. Fake mode uses it until Ingestion exists (ticket 05). */
+export class RecordingJobs implements Jobs {
+  readonly started: CaseFileId[] = [];
+
+  async startIngestion(caseFileId: CaseFileId) {
+    this.started.push(caseFileId);
+  }
+}

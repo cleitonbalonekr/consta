@@ -1,6 +1,6 @@
-import { createIngestion, createMetering } from "@consta/core";
+import { createIngestion, Metering } from "@consta/core";
 import type { Ingestion } from "@consta/core";
-import { createDb, createDrizzleUnitOfWork } from "@consta/core/db";
+import { createDb, DrizzleUnitOfWork } from "@consta/core/db";
 import { adaptersFromEnv } from "@consta/adapters";
 
 let ingestion: Ingestion | undefined;
@@ -8,9 +8,9 @@ let ingestion: Ingestion | undefined;
 /** Composition root for the task runtime. Built once per task process. */
 export function container() {
   if (!ingestion) {
-    const uow = createDrizzleUnitOfWork(createDb(requiredEnv("DATABASE_URL")));
+    const uow = new DrizzleUnitOfWork(createDb(requiredEnv("DATABASE_URL")));
     const { files, ocr, embedder, extractor, mailer } = adaptersFromEnv(process.env);
-    const metering = createMetering({ uow });
+    const metering = new Metering({ uow });
     ingestion = createIngestion({ uow, files, ocr, embedder, extractor, mailer, metering });
   }
   return { ingestion };

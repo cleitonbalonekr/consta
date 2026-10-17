@@ -1,13 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { InMemoryUnitOfWork } from "../ports/fakes";
-import { LawyerId } from "../shared";
-import { createMetering } from "./index";
+import { CaseFileId, LawyerId, QuotaExceeded } from "../shared";
+import { Metering } from "./index";
 
 function setup(now = new Date("2026-10-15T12:00:00Z")) {
   const uow = new InMemoryUnitOfWork();
   const lawyer = LawyerId(crypto.randomUUID());
-  const charge = (pages: number, createdAt: string) => uow.state.metering.charges.push({ lawyer, pages, createdAt: new Date(createdAt) });
-  return { uow, lawyer, charge, metering: createMetering({ uow, now: () => now }) };
+  const charge = (pages: number, createdAt: string) => uow.state.metering.charges.push({ lawyer, caseFileId: null, pages, createdAt: new Date(createdAt) });
+  return { uow, lawyer, charge, metering: new Metering({ uow, now: () => now }) };
 }
 
 describe("Metering.pagesLeft", () => {
@@ -62,5 +62,55 @@ describe("Metering.startTrial", () => {
     await metering.startTrial(lawyer);
 
     expect(await metering.pagesLeft(lawyer)).toBe(5_000);
+  });
+});
+
+describe("Metering.chargePages", () => {
+  const caseFileId = () => CaseFileId(crypto.randomUUID());
+
+  it("charges the pages of a case file that fits the quota", async () => {
+    const { metering, lawyer } = setup();
+    await metering.startTrial(lawyer);
+
+    await metering.chargePages(lawyer, caseFileId(), 120);
+
+    expect(await metering.pagesLeft(lawyer)).toBe(380);
+  });
+
+  it("charges a case file that uses the last page of the quota", async () => {
+    const { metering, lawyer } = setup();
+    await metering.startTrial(lawyer);
+
+    await metering.chargePages(lawyer, caseFileId(), 500);
+
+    expect(await metering.pagesLeft(lawyer)).toBe(0);
+  });
+
+  it("refuses a case file that doesn't fit, and charges nothing", async () => {
+    const { metering, lawyer, charge } = setup();
+    await metering.startTrial(lawyer);
+    charge(450, "2026-10-02T10:00:00Z");
+
+    const charging = metering.chargePages(lawyer, caseFileId(), 51);
+
+    await expect(charging).rejects.toEqual(new QuotaExceeded(51, 50));
+    expect(await metering.pagesLeft(lawyer)).toBe(50);
+  });
+
+  it("refuses every case file of a lawyer without a plan", async () => {
+    const { metering, lawyer } = setup();
+
+    await expect(metering.chargePages(lawyer, caseFileId(), 1)).rejects.toBeInstanceOf(QuotaExceeded);
+  });
+
+  it("charges a case file once, even when called again", async () => {
+    const { metering, lawyer } = setup();
+    await metering.startTrial(lawyer);
+    const id = caseFileId();
+
+    await metering.chargePages(lawyer, id, 300);
+    await metering.chargePages(lawyer, id, 300);
+
+    expect(await metering.pagesLeft(lawyer)).toBe(200);
   });
 });

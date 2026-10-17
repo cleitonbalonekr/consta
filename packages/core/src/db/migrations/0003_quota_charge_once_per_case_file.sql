@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX "quota_charge_case_file_idx" ON "quota_charge" USING btree ("case_file_id");

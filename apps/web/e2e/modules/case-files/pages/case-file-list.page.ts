@@ -8,14 +8,14 @@ export class CaseFileListPage extends BasePage {
     await this.page.goto("/");
   }
 
-  /** Uploads the sample PDF under another name, so each journey gets its own case file. */
-  async upload(name: string) {
-    await this.byId("upload-input").setInputFiles({ name, mimeType: "application/pdf", buffer: await samplePdf() });
+  /** Uploads a PDF, the sample one by default, under a name of the journey's own. */
+  async upload(name: string, pdf?: Buffer) {
+    await this.byId("upload-input").setInputFiles({ name, mimeType: "application/pdf", buffer: pdf ?? (await samplePdf()) });
   }
 
   /** Uploads and waits for the new case file's page. Returns its id. */
-  async uploadAndOpen(name: string) {
-    await this.upload(name);
+  async uploadAndOpen(name: string, pdf?: Buffer) {
+    await this.upload(name, pdf);
     await this.page.waitForURL(/\/autos\/[^/]+$/);
     return this.page.url().split("/").at(-1)!;
   }
@@ -28,8 +28,20 @@ export class CaseFileListPage extends BasePage {
     return this.byIdPrefix("case-file-row-");
   }
 
+  get emptyList() {
+    return this.byId("case-file-list-empty");
+  }
+
   get quotaExceeded() {
     return this.byId("quota-exceeded");
+  }
+
+  get uploadInterrupted() {
+    return this.byId("upload-interrupted");
+  }
+
+  async resumeUpload() {
+    await this.byId("resume-upload").click();
   }
 
   async startDeleting(caseFileId: string) {
