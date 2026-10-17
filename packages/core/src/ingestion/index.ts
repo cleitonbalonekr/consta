@@ -1,5 +1,5 @@
 import type { Metering } from "../metering";
-import type { Embedder, FileStore, Mailer, MapExtractor, Ocr, UnitOfWork } from "../ports";
+import type { Embedder, FileStore, Mailer, MapExtractor, UnitOfWork } from "../ports";
 import { NotImplemented } from "../shared";
 import type { CaseFileId, PageRange } from "../shared";
 
@@ -15,7 +15,7 @@ export const PAGES_PER_RANGE = 100;
 export interface Ingestion {
   /** Splits the case file into page ranges and records them. */
   plan(caseFileId: CaseFileId): Promise<PageRange[]>;
-  /** Reads, OCRs, splits and embeds one range. A retry replaces that range's pages and passages. */
+  /** Reads, splits and embeds the digital pages of one range. A retry replaces that range's pages and passages. */
   ingestRange(caseFileId: CaseFileId, range: PageRange): Promise<void>;
   /** Builds the document map and facts, marks the case file ready and emails the lawyer. */
   map(caseFileId: CaseFileId): Promise<void>;
@@ -26,7 +26,6 @@ export interface Ingestion {
 export type IngestionDeps = {
   uow: UnitOfWork;
   files: FileStore;
-  ocr: Ocr;
   embedder: Embedder;
   extractor: MapExtractor;
   mailer: Mailer;

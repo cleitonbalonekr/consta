@@ -9,9 +9,9 @@ let ingestion: Ingestion | undefined;
 export function container() {
   if (!ingestion) {
     const uow = new DrizzleUnitOfWork(createDb(requiredEnv("DATABASE_URL")));
-    const { files, ocr, embedder, extractor, mailer } = adaptersFromEnv(process.env);
+    const { files, embedder, extractor, mailer } = adaptersFromEnv(process.env);
     const metering = new Metering({ uow });
-    ingestion = createIngestion({ uow, files, ocr, embedder, extractor, mailer, metering });
+    ingestion = createIngestion({ uow, files, embedder, extractor, mailer, metering });
   }
   return { ingestion };
 }

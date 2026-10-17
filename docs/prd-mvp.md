@@ -32,7 +32,7 @@ The MVP succeeds when the pilot lawyer uses Consta on a real case file every wee
 ### Goals
 
 1. **Trust.** Every statement shown has a page reference, and the lawyer confirms that the page holds the source.
-2. **Large files work.** A 3,600-page mixed file goes from upload to a finished document map with no manual step.
+2. **Large files work.** A 3,600-page digital file goes from upload to a finished document map with no manual step. The MVP does not read scanned pages; it shows the lawyer which pages it did not read (ADR-0010).
 3. **Value before the first question.** The document map replaces the lawyer's manual index.
 4. **Low cost.** No fixed monthly infrastructure cost during the pilot. AI is paid only per page and per question.
 5. **Replaceable vendors.** To swap a vendor, we write one new adapter and change config. Domain code does not change.
@@ -72,11 +72,11 @@ The pilot needs ten Must features. Four Should features are needed before the fi
 | --- | --- | --- | --- |
 | F1 | Sign in | As a lawyer, I sign in with my email so only I see my case files. | Magic-link login. Each query filters by owner. A second account cannot open the first account's file, even by URL. |
 | F2 | Upload a large PDF | As a lawyer, I upload a 400 MB PDF and it survives a network drop. | Direct multipart upload to object storage, 5 to 10 MB parts. Resume after a network stop. Limits: 500 MB and 5,000 pages per file. |
-| F3 | Ingest with progress | As a lawyer, I see how far the processing is and I can close the tab. | Shows the stage and "page N of M". Progress comes from the database, not the browser. A failed page range retries 3 times, then the file shows `failed` with a reason. |
+| F3 | Ingest with progress | As a lawyer, I see how far the processing is and I can close the tab. | Shows the stage and "page N of M". Progress comes from the database, not the browser. A failed page range retries 3 times, then the file shows `failed` with a reason. Scanned pages show as not read (ADR-0010). |
 | F4 | Document map | As a lawyer, I see an index of the peças before I ask anything. | Table of peças: type, date, page range, 2 to 3 sentence summary. A click opens the first page in the viewer. |
 | F5 | Ask about the full file | As a lawyer, I ask a question about the whole case file. | Needle questions use hybrid search and a reranker. List questions use the `fact` table. Each statement carries at least one page number. A statement without one is not shown. |
 | F6 | Ask about one peça | As a lawyer, I pick a peça and ask about it. | The system reads the full page range of the peça. It does not search. It refuses a range above the token budget (about 150,000 tokens) and asks the user to narrow it. |
-| F7 | Viewer with page references | As a lawyer, I click a page reference and see the source. | Opens the cited page. On digital pages it marks the source text. On scanned pages it shows the quoted text next to the page (see Open questions). |
+| F7 | Viewer with page references | As a lawyer, I click a page reference and see the source. | Opens the cited page and marks the source text. A reference can only point to a digital page, because the MVP does not read scanned pages (ADR-0010). |
 | F8 | Summarize a peça or page range | As a lawyer, I get a summary of a sentença or a laudo. | A preset prompt on the F6 path. Every paragraph cites pages. |
 | F9 | Delete a case file | As a lawyer, I delete a file and everything derived from it. | Removes the PDF, pages, chunks, vectors and facts. Storage is purged within 24 hours. The action is logged without file content. |
 | F10 | Quota and usage metering | As the operator, I cap the cost of each account. | Page quota per account, checked before ingest. Each AI call writes a `usage_event` row with tokens, pages and cost. |
@@ -92,7 +92,7 @@ The pilot needs ten Must features. Four Should features are needed before the fi
 
 ### Later
 
-Search across case files, teams and sharing, export to Word, an OCR correction screen, saved chat history, user API keys (enterprise tier), SSO.
+OCR of scanned pages (ticket 06, ADR-0010), search across case files, teams and sharing, export to Word, an OCR correction screen, saved chat history, user API keys (enterprise tier), SSO.
 
 ### Question types and how each is answered
 
@@ -113,11 +113,11 @@ flowchart LR
   B["Browser<br/>Uppy upload, PDF.js viewer"]
   subgraph Repo["One repo, TypeScript, ports"]
     N["Next.js on Vercel<br/>UI, auth, upload signing,<br/>questions, streaming answers"]
-    T["Trigger.dev tasks<br/>ingest: classify, extract, OCR,<br/>embed, build document map<br/>no time limit, step retries"]
+    T["Trigger.dev tasks<br/>ingest: classify, extract,<br/>embed, build document map<br/>no time limit, step retries"]
     N -->|start ingest job| T
   end
   PG[("Postgres + pgvector<br/>Neon free tier<br/>rows, vectors, full-text,<br/>job progress, usage")]
-  AI["AI APIs, paid tiers<br/>Claude: answers, extraction<br/>Voyage: embed, rerank<br/>Mistral: OCR for scans<br/>no training on our data"]
+  AI["AI APIs, paid tiers<br/>Claude: answers, extraction<br/>Voyage: embed, rerank<br/>Mistral OCR: later (ADR-0010)<br/>no training on our data"]
   R2[("Object storage<br/>Cloudflare R2, S3 API<br/>PDF files, zero egress")]
   B -->|HTTPS| N
   Repo --> PG
@@ -169,16 +169,16 @@ Every external service sits behind a port: a TypeScript interface in `packages/c
 | Database (Drizzle on plain Postgres) | Neon Free | 0.5 GB per project, 100 CU-hours per month, suspends after 5 minutes idle | Neon Launch (0.35 USD per GB-month, 0.106 USD per CU-hour, no minimum), Supabase Pro (25 USD per month), or any Postgres 16+ with pgvector | More than 0.4 GB stored |
 | `SearchIndex` | pgvector HNSW plus Postgres full-text (`portuguese`), fused with RRF in one SQL statement | Inside the database | ParadeDB BM25, or a vector database (Qdrant) | p95 search above 500 ms |
 | `TextExtractor` | pdf.js through `unpdf` (Apache-2.0) | Free | Python task with pypdfium2 or Docling | Phase 1 extraction test fails |
-| `OcrProvider` | Mistral OCR 4 API | 4 USD per 1,000 pages, 2 USD with Batch. Returns bounding boxes. | Mistral OCR 3 (2 USD per 1,000), a self-hosted OCR container, or a cloud Document AI | OCR cost above 30% of revenue |
+| `OcrProvider` (later, ADR-0010) | None in the MVP. When OCR comes back: Mistral OCR 4 API | 4 USD per 1,000 pages, 2 USD with Batch. Returns bounding boxes. | Mistral OCR 3 (2 USD per 1,000), a self-hosted OCR container, or a cloud Document AI | OCR cost above 30% of revenue |
 | `Embedder` | Voyage `voyage-4-lite`, 1,024 dimensions | 0.02 USD per million tokens, first 200M tokens free | `voyage-4` or another multilingual model (needs a re-embed job) | Retrieval eval below target |
 | `Reranker` | Voyage `rerank-3-lite` | 0.02 USD per million tokens, first 200M free | `rerank-3` or Cohere Rerank | Retrieval eval below target |
-| `LlmClient`, role `extract` | Claude Haiku 4.5 through the Message Batches API | 1 / 5 USD per million tokens in / out, 50% off in batch | Any cheaper model that passes the document map eval | Always tested against the eval set |
-| `LlmClient`, role `answer` | Claude Opus 5 with Citations | 5 / 25 USD per million tokens in / out | Claude Sonnet 5 (2 / 10 USD) if it passes the same eval | Answer cost above target |
+| `LlmClient`, role `extract` | Claude Haiku 5.5 through the Message Batches API | 0.10 / 0.50 USD per million tokens in / out for prompts up to 100,000 tokens (0.50 / 2.50 above), 50% off in batch | Claude Sonnet 5.5 if Haiku fails the document map eval | Always tested against the eval set |
+| `LlmClient`, role `answer` | Claude Sonnet 5.5 with Citations | 2 / 10 USD per million tokens in / out | Claude Opus 5.5 (4 / 20 USD) | Answer eval below target |
 | `Auth` | Better Auth (open source), magic link, sessions in our Postgres | Free | Add the SSO plugin, or WorkOS for enterprise SSO | First firm that needs SSO |
 | `Mailer` | Resend Free | 3,000 emails per month, 100 per day | Resend Pro (20 USD per month) or Amazon SES | More than 80 emails per day |
 | `Billing` (Should) | Stripe Checkout and Customer Portal | No monthly fee | Local provider for Pix or boleto | Brazilian customers ask for Pix |
 
-**No free AI tiers for client data.** Mistral's free Experiment tier and Voyage's default terms can use API data for training. We use paid Mistral (no training by default) and turn on Voyage's training opt-out, which needs a payment method on file. Anthropic's commercial API does not train on inputs by default. This is an LGPD and professional-secrecy requirement, so it is not optional.
+**No free AI tiers for client data.** Mistral's free Experiment tier and Voyage's default terms can use API data for training. If OCR comes back, we use paid Mistral (no training by default). We turn on Voyage's training opt-out, which needs a payment method on file. Anthropic's commercial API does not train on inputs by default. This is an LGPD and professional-secrecy requirement, so it is not optional.
 
 Sources: [Vercel Hobby](https://vercel.com/docs/plans/hobby) · [Trigger.dev pricing](https://trigger.dev/pricing) · [Neon plans](https://neon.com/docs/introduction/plans) · [R2 pricing](https://developers.cloudflare.com/r2/pricing/) · [Mistral OCR 4](https://mistral.ai/news/ocr-4/) · [Voyage pricing](https://docs.voyageai.com/docs/pricing) · [Voyage FAQ on opt-out](https://docs.voyageai.com/docs/faq) · [Mistral training opt-out](https://help.mistral.ai/en/articles/347614-can-i-opt-out-of-my-input-or-output-data-being-used-for-training) · [Resend pricing](https://resend.com/pricing)
 
@@ -204,7 +204,7 @@ Sources: [Supabase pricing](https://supabase.com/pricing) · [R2 data location](
 apps/web            Next.js: pages, route handlers, server actions
 apps/jobs           Trigger.dev task definitions (thin: call use cases in core)
 packages/core       entities, use cases, port interfaces; no vendor imports
-packages/adapters   one folder per vendor: r2, voyage, anthropic, mistral-ocr, trigger, resend
+packages/adapters   one folder per vendor: r2, voyage, anthropic, trigger, resend (mistral-ocr when OCR comes back)
 packages/db         Drizzle schema, migrations, SQL for hybrid search
 packages/evals      test questions, expected pages, scoring scripts
 ```
@@ -262,9 +262,9 @@ Eight domain tables in one Postgres database hold everything, including vectors,
 1. The browser asks Next.js to start an upload. Next.js checks the page quota, creates `case_file` (`uploading`) and opens an R2 multipart upload.
 2. Uppy sends 10 MB parts straight to R2 with signed URLs. On completion, Next.js closes the multipart upload, reads the page count, sets `queued` and calls `JobRunner.startIngest`.
 3. The parent task creates one `ingest_job` per 100 pages and starts the child tasks in parallel.
-4. Each child task classifies each page. Digital pages go to `TextExtractor`. Scanned pages are copied into a small PDF with `pdf-lib` and sent to `OcrProvider`.
+4. Each child task classifies each page. Digital pages go to `TextExtractor`. Scanned pages are stored with no text and shown as not read (ADR-0010). When OCR comes back, they are copied into a small PDF with `pdf-lib` and sent to `OcrProvider`.
 5. The child writes `page` rows, splits text into chunks inside each page, embeds them in batches and writes `chunk` rows. It updates `ingest_job` after every page.
-6. When every range is done, the map task runs Claude Haiku 4.5 through the Batch API. It finds each peça's boundaries, type and date, writes a summary, and extracts facts. It writes `peca` and `fact` rows and sets `ready`.
+6. When every range is done, the map task runs Claude Haiku 5.5 through the Batch API, with each window of pages under 100,000 tokens to keep the lower price. It finds each peça's boundaries, type and date, writes a summary, and extracts facts. It writes `peca` and `fact` rows and sets `ready`.
 
 ### Query flow: whole file
 
@@ -311,7 +311,7 @@ Put the web functions and the database in the same region. Each question makes s
 - **Secrets** live in Vercel and Trigger.dev environment settings, never in the repository.
 - **No case content in logs.** Error reports and logs hold ids and counts, never page text, questions or answers. Scrubbing runs before any external error tool.
 - **Logs.** Vercel Hobby keeps runtime logs for 1 hour and Trigger.dev Free keeps them for 1 day. Durable facts (job status, errors, cost) go to our own tables.
-- **Spend guards.** Monthly spend limits at Anthropic, Mistral and Voyage. Page quota per account. Vercel Hobby stops a feature at its limit instead of billing.
+- **Spend guards.** Monthly spend limits at Anthropic and Voyage (and Mistral, when OCR comes back). Page quota per account. Vercel Hobby stops a feature at its limit instead of billing.
 
 ### Variable cost per case file
 
@@ -319,17 +319,18 @@ These numbers are estimates from list prices for a 3,600-page file. Phase 1 repl
 
 | Item | Assumption | Cost (USD) |
 | --- | --- | --- |
-| OCR | All 3,600 pages scanned; Mistral OCR 4 at 4 USD per 1,000 (2 USD in batch) | 7.20 to 14.40 |
-| OCR | 30% scanned | 2.20 to 4.30 |
+| OCR (later, ADR-0010) | All 3,600 pages scanned; Mistral OCR 4 at 4 USD per 1,000 (2 USD in batch) | 7.20 to 14.40 |
+| OCR (later, ADR-0010) | 30% scanned | 2.20 to 4.30 |
 | Embeddings | About 3M tokens at 0.02 USD per million (free inside the first 200M) | Under 0.10 |
-| Document map and facts | About 3M tokens in, 0.3M out, Claude Haiku 4.5 in batch (0.50 / 2.50 USD per million) | About 2.30 |
+| Document map and facts | About 3M tokens in, 0.3M out, Claude Haiku 5.5 in batch (0.05 / 0.25 USD per million) | About 0.25 |
 | Task compute | 20 to 40 minutes of Trigger.dev machine time | Under 1 (to be measured) |
-| **Ingest total** | 30% scanned to fully scanned | **About 5 to 18** |
-| Whole-file question | About 12,000 tokens in, 1,000 out, Claude Opus 5, plus rerank | About 0.10 |
-| Peça question, first | About 80,000 tokens in, 2,000 out, Claude Opus 5 | About 0.55 (includes the cache write) |
-| Peça question, follow-up | Same pages read from the prompt cache | About 0.10 |
+| **Ingest total, MVP** | Digital pages only, no OCR | **About 0.50 to 1.50** |
+| Ingest total, with OCR later | 30% scanned to fully scanned | About 3 to 16 |
+| Whole-file question | About 12,000 tokens in, 1,000 out, Claude Sonnet 5.5, plus rerank | About 0.04 |
+| Peça question, first | About 80,000 tokens in, 2,000 out, Claude Sonnet 5.5 | About 0.22 (includes the cache write) |
+| Peça question, follow-up | Same pages read from the prompt cache | About 0.04 |
 
-The ingest is paid once, and a lawyer works on one case file for months. The scan share of real files decides most of the cost. Getting sample files is therefore still the first task.
+The ingest is paid once, and a lawyer works on one case file for months. With OCR, the scan share of real files decides most of the cost; it also decides when OCR comes back. Getting sample files is therefore still the first task.
 
 ### When fixed costs start
 
@@ -366,7 +367,7 @@ Worked example of the price rule: if Phase 1 measures 3 USD per 1,000 pages, a P
 | Client data used for training | LGPD and professional-secrecy breach | Paid AI tiers only, training opt-outs on, listed in the data statement |
 | Filtered vector search recall | HNSW with a `case_file_id` filter can miss results | pgvector iterative scans; recall check in Phase 2; partition by case file if needed |
 
-**Data statement before the first upload.** Write down where the file is stored and in which country, and which services read it (Anthropic, Voyage, Mistral). Say that they do not train on it, how the user deletes a file, and how long deleted data stays. AI processing happens outside Brazil, so the statement must name that international transfer. Ask an LGPD specialist to review it before the first paying customer.
+**Data statement before the first upload.** Write down where the file is stored and in which country, and which services read it (Anthropic and Voyage). Say that they do not train on it, how the user deletes a file, and how long deleted data stays. AI processing happens outside Brazil, so the statement must name that international transfer. Ask an LGPD specialist to review it before the first paying customer.
 
 ## Milestones
 
@@ -375,7 +376,7 @@ We build from the bottom up, as the first draft said. Each gate is a test that m
 ```mermaid
 flowchart TD
   P0["0 · Samples and skeleton (1 week)<br/>Real files, repo, ports, CI, eval set"] --> G0{{"Gate: 3 to 5 real case files in hand<br/>20 real questions with expected pages"}}
-  G0 --> P1["1 · Ingest one real file (1 to 2 weeks)<br/>Tasks only, no UI: classify, extract, OCR, chunk"] --> G1{{"Gate: 20 of 20 random pages correct<br/>Cost and time per 1,000 pages recorded"}}
+  G0 --> P1["1 · Ingest one real file (1 to 2 weeks)<br/>Tasks only, no UI: classify, extract, chunk"] --> G1{{"Gate: 20 of 20 random pages correct<br/>Cost and time per 1,000 pages recorded"}}
   G1 --> P2["2 · Retrieval and citations (1 to 2 weeks)<br/>Hybrid search, rerank, Claude citations"] --> G2{{"Gate: 18 of 20 questions cite the right page<br/>p95 search under 500 ms"}}
   G2 --> P3["3 · Document map (1 week)<br/>Peça boundaries, summaries, facts"] --> G3{{"Gate: lawyer confirms 90% of peças<br/>Page ranges match her own index"}}
   G3 --> P4["4 · Product shell (1 to 2 weeks)<br/>Login, upload, progress, quota, delete"] --> G4{{"Gate: 400 MB upload resumes after a drop<br/>Delete removes every derived row"}}
@@ -389,13 +390,13 @@ Durations are estimates for one full-time engineer (about 8 to 10 weeks in total
 
 Answer these with the pilot lawyer before Phase 1. The first one decides the cost, the speed and the quality of the whole system.
 
-- [ ] What share of pages are scans? Get 3 to 5 real case files and check them page by page.
+- [ ] What share of pages are scans? Get 3 to 5 real case files and check them page by page. Above about 10%, OCR comes back (ADR-0010).
 - [ ] Where do the files come from: a PJe or e-SAJ export, a paper scan, or an email from a client?
 - [ ] What does the lawyer do today with a new case file, hour by hour?
 - [ ] Which question does she ask most often about a file of this size?
 - [ ] Does she accept an answer that she cannot check against a page? Record her answer in her own words.
 - [ ] How many case files does she open each month? This sets the quota and the price.
-- [ ] On scanned pages, is a mark around the OCR text block enough, or does she need the exact line? (F7)
+- [ ] When OCR comes back: on scanned pages, is a mark around the OCR text block enough, or does she need the exact line? (F7)
 - [ ] What would she pay per month, and how: card, Pix or boleto?
 - [ ] Does `voyage-4-lite` handle legal Portuguese well enough? Compare it with `voyage-4` on the 20-question set in Phase 2.
 --resume bc6e0155-5127-4f96-83e3-606259d2b322

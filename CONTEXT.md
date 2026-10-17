@@ -30,7 +30,7 @@ _Avoid_: page (when the stamped number is meant)
 A page whose text was produced by a court system and can be read directly.
 
 **Scanned page**:
-A page that is an image (a scan, a photo, handwriting) and must be read by OCR.
+A page that is an image (a scan, a photo, handwriting) and must be read by OCR. The MVP does not read it: it marks the page as not read, and no statement can cite it (ADR-0010).
 _Avoid_: image page
 
 **Document map**:

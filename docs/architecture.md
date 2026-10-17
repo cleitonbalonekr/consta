@@ -21,7 +21,6 @@ flowchart LR
   end
   subgraph Ports["Ports (external seams)"]
     FS["FileStore"]
-    OCR["Ocr"]
     EMB["Embedder"]
     RR["Reranker"]
     CM["CitingModel"]
@@ -37,7 +36,6 @@ flowchart LR
   CF --> JB
   CF --> MET
   ING --> FS
-  ING --> OCR
   ING --> EMB
   ING --> MX
   ING --> MET
@@ -59,7 +57,7 @@ The web app's screens only call Case files and Answering; its sign-in calls Mete
 | Module | What callers know (interface) | What it hides (implementation) | Called by |
 | --- | --- | --- | --- |
 | **Case files** | Start and finish an upload, view, list, get a read URL, remove | Status lifecycle, page-quota check, multipart upload bookkeeping, ownership checks, ordered deletion of every derived row and the stored PDF | `apps/web` |
-| **Ingestion** | `plan`, `ingestRange`, `map`, `fail`, run in that order; every step is idempotent | Page classification, text and block extraction, OCR of scanned pages, folha detection, passage splitting inside a page, embedding, document map windowing and merging, facts, progress, the ready email | `apps/jobs`, the inline `Jobs` adapter |
+| **Ingestion** | `plan`, `ingestRange`, `map`, `fail`, run in that order; every step is idempotent | Page classification, text and block extraction of digital pages (scanned pages are marked as not read, ADR-0010), folha detection, passage splitting inside a page, embedding, document map windowing and merging, facts, progress, the ready email | `apps/jobs`, the inline `Jobs` adapter |
 | **Answering** | `ask` returns a stream of statements, each with at least one citation | Scope handling, hybrid search and reranking, source blocks per page, token budget, prompt caching, citation-to-page resolution, dropping uncited statements, saving the question, metering | `apps/web` |
 | **Metering** | `record` usage, `startTrial` and `pagesLeft` for a lawyer | Cost per provider and unit, the monthly page-quota window, plan limits | The other three modules, the web app's sign-in, the operator page |
 
@@ -104,7 +102,7 @@ export class CaseFiles {
 // packages/core/src/ingestion/index.ts
 /** Call order: plan, then ingestRange for every range (in parallel), then map. Any step may be retried. */
 export class Ingestion {
-  constructor(deps: { uow: UnitOfWork; files: FileStore; ocr: Ocr; embedder: Embedder; extractor: MapExtractor; mailer: Mailer; metering: Metering });
+  constructor(deps: { uow: UnitOfWork; files: FileStore; embedder: Embedder; extractor: MapExtractor; mailer: Mailer; metering: Metering });
   plan(caseFileId: CaseFileId): Promise<PageRange[]>;
   /** A retry replaces the pages and passages of that range only. */
   ingestRange(caseFileId: CaseFileId, range: PageRange): Promise<void>;
@@ -178,10 +176,10 @@ Each port is a real seam: it has a production adapter and an in-memory fake used
 | Port | What it does | Production adapter | Test adapter |
 | --- | --- | --- | --- |
 | `FileStore` | Multipart upload, signed read URL, download, remove | S3-compatible client (MinIO locally, Cloudflare R2 now, AWS S3 in São Paulo later) | In-memory store |
-| `Ocr` | Reads a PDF of scanned pages into text blocks with bounding boxes and confidence | Mistral OCR | Returns fixture text |
+| `Ocr` (later, ADR-0010) | Reads a PDF of scanned pages into text blocks with bounding boxes and confidence | Mistral OCR, when ticket 06 adds it again | Returns fixture text |
 | `Embedder` | Embeds passages and questions | Voyage | Deterministic hash vectors |
 | `Reranker` | Orders passages for a question | Voyage | Keeps the input order |
-| `CitingModel` | Answers from source blocks, returning text with the ids of the sources it cites | Claude with native citations | Scripted answers, including uncited ones |
+| `CitingModel` | Answers from source blocks, returning text with the ids of the sources it cites | Claude Sonnet with native citations | Scripted answers, including uncited ones |
 | `MapExtractor` | Reads a window of pages and returns peças and facts | Claude Haiku | Scripted peças and facts |
 | `Jobs` | Starts ingestion of a case file | Trigger.dev, with the case file id as the idempotency key, in both adapter modes (ADR-0009) | Inline: runs plan, ranges and map in-process. Recording: records the request only (the E2E server until ticket 05) |
 | `Mailer` | Sends a templated email | Resend | In-memory outbox |
@@ -244,7 +242,7 @@ packages/
     src/shared/        ids, value types and errors shared by the modules
     src/ports/         port types and their in-memory fakes
     src/db/            Drizzle schema, migrations, hybrid search SQL
-  adapters/            r2-s3, mistral-ocr, voyage, anthropic, resend, trigger-jobs
+  adapters/            r2-s3, voyage, anthropic, resend, trigger-jobs
   evals/               quality runs against real adapters; they cost money, so they run by hand
 ```
 
@@ -255,7 +253,7 @@ Dependencies point one way: `apps` import `core` and `adapters`; `adapters` impo
 - **The interface is the test surface.** Each module is tested through its `index.ts` with in-memory repositories and the fake adapters. No tests reach into a module's internals.
 - **Repositories are tested on Postgres.** Each Drizzle repository has integration tests on PGlite, and a contract test that its fake passes too.
 - **One in-process end-to-end path.** With the inline `Jobs` adapter, a single test can upload a fixture PDF, run ingestion and ask a question without any network.
-- **Fixture PDFs:** a short digital file, a short scanned file and a two-column file.
+- **Fixture PDFs:** a short digital file, a short scanned file (its pages are marked as not read) and a two-column file.
 - **Answering's key tests:** a scripted model answer with one uncited statement must yield `dropped: 1`, and every citation must resolve to the page and boxes of its source block.
 - **Port contract tests** run against the fake on every pull request and against the real adapter nightly.
 - **Quality** (correct pages, document map accuracy) is measured in `packages/evals` with real adapters, not in unit tests.

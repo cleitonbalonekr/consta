@@ -4,7 +4,7 @@ import { defineConfig, globalIgnores } from "eslint/config";
 import tseslint from "typescript-eslint";
 
 const vendorSdks = {
-  group: ["@anthropic-ai/*", "@aws-sdk/*", "@mistralai/*", "voyageai", "@trigger.dev/*", "resend", "@consta/adapters"],
+  group: ["@anthropic-ai/*", "@aws-sdk/*", "voyageai", "@trigger.dev/*", "resend", "@consta/adapters"],
   message: "Core never imports vendor SDKs or adapters. Add a port in packages/core/src/ports instead (docs/architecture.md).",
 };
 

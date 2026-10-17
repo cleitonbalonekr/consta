@@ -12,7 +12,7 @@ Ask questions about a very large Brazilian case file; every statement in the ans
 apps/web            Next.js app (composition root: src/server/container.ts)
 apps/jobs           Trigger.dev tasks for ingestion
 packages/core       modules (case-files, ingestion, answering, metering), ports, fakes, database schema
-packages/adapters   vendor adapters (R2/S3, Mistral OCR, Voyage, Claude, Resend, Trigger.dev)
+packages/adapters   vendor adapters (R2/S3, Voyage, Claude, Resend, Trigger.dev)
 packages/evals      quality runs against real providers (run by hand)
 ```
 

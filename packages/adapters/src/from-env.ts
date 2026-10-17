@@ -3,14 +3,12 @@ import {
   FakeCitingModel,
   FakeEmbedder,
   FakeMapExtractor,
-  FakeOcr,
   FakeReranker,
   InMemoryMailer,
   RecordingJobs,
 } from "@consta/core/fakes";
-import type { CitingModel, Embedder, FileStore, Jobs, Mailer, MapExtractor, Ocr, Reranker } from "@consta/core/ports";
+import type { CitingModel, Embedder, FileStore, Jobs, Mailer, MapExtractor, Reranker } from "@consta/core/ports";
 import { createClaudeCitingModel, createClaudeMapExtractor } from "./anthropic";
-import { createMistralOcr } from "./mistral-ocr";
 import { createResendMailer } from "./resend-mailer";
 import { S3FileStore } from "./s3-file-store";
 import { TriggerJobs } from "./trigger-jobs";
@@ -18,7 +16,6 @@ import { createVoyageEmbedder, createVoyageReranker } from "./voyage";
 
 export type ExternalAdapters = {
   files: FileStore;
-  ocr: Ocr;
   embedder: Embedder;
   reranker: Reranker;
   model: CitingModel;
@@ -38,7 +35,6 @@ export function adaptersFromEnv(env: Env): ExternalAdapters {
   if (usesFakeAdapters(env)) {
     return {
       files: fileStoreFromEnv(env),
-      ocr: new FakeOcr(),
       embedder: new FakeEmbedder(EMBEDDING_DIMENSIONS),
       reranker: new FakeReranker(),
       model: new FakeCitingModel(),
@@ -50,11 +46,10 @@ export function adaptersFromEnv(env: Env): ExternalAdapters {
   const voyage = { apiKey: required(env, "VOYAGE_API_KEY") };
   return {
     files: fileStoreFromEnv(env),
-    ocr: createMistralOcr({ apiKey: required(env, "MISTRAL_API_KEY"), model: "mistral-ocr-latest" }),
     embedder: createVoyageEmbedder({ ...voyage, model: "voyage-4-lite", dimensions: EMBEDDING_DIMENSIONS }),
     reranker: createVoyageReranker({ ...voyage, model: "rerank-3-lite" }),
-    model: createClaudeCitingModel({ ...anthropic, model: "claude-opus-5" }),
-    extractor: createClaudeMapExtractor({ ...anthropic, model: "claude-haiku-4-5" }),
+    model: createClaudeCitingModel({ ...anthropic, model: "claude-sonnet-5-5" }),
+    extractor: createClaudeMapExtractor({ ...anthropic, model: "claude-haiku-5-5" }),
     mailer: mailerFromEnv(env),
   };
 }

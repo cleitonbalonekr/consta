@@ -1,5 +1,4 @@
 export { InMemoryFileStore } from "./file-store";
-export { FakeOcr } from "./ocr";
 export { FakeEmbedder } from "./embedder";
 export { FakeReranker } from "./reranker";
 export { FakeCitingModel } from "./citing-model";

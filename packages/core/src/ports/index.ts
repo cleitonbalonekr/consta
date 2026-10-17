@@ -1,6 +1,5 @@
 export type * from "./usage";
 export type * from "./file-store";
-export type * from "./ocr";
 export type * from "./embedder";
 export type * from "./reranker";
 export type * from "./citing-model";
