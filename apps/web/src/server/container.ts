@@ -1,63 +1,41 @@
 import "server-only";
-import { createAnswering, createCaseFiles, createIngestion, createMetering, ingestInline } from "@consta/core";
-import type { Answering, CaseFiles } from "@consta/core";
-import { createDb } from "@consta/core/db";
-import { InlineJobs } from "@consta/core/fakes";
-import type { InMemoryFileStore } from "@consta/core/fakes";
-import { adaptersFromEnv, createTriggerJobs } from "@consta/adapters";
-import { createDemoModules, createDemoState } from "./demo";
-import type { DemoState } from "./demo";
-import { DEMO_LAWYER } from "./lawyer";
+import { CaseFiles, createAnswering, Metering } from "@consta/core";
+import type { Answering } from "@consta/core";
+import { createDb, DrizzleUnitOfWork } from "@consta/core/db";
+import { adaptersFromEnv, jobsFromEnv, usesFakeAdapters } from "@consta/adapters";
+import { createAuth } from "./auth";
+import type { Auth } from "./auth";
 
 type Container = {
   caseFiles: CaseFiles;
   answering: Answering;
-  /** Only with CONSTA_MODULES=demo: the store the demo file route reads and writes. */
-  demoFiles?: InMemoryFileStore;
+  auth: Auth;
 };
 
 let built: Container | undefined;
 
-// Next.js loads this file once per route bundle, each with its own copy of
-// @consta/core. Modules are built per bundle, so `instanceof` on their errors
-// works; only the demo state is shared through globalThis, as a database would be.
-const shared = globalThis as typeof globalThis & { constaDemoState?: DemoState };
-
-const STATEMENT_PAUSE_MS = 350;
-
 /**
- * Composition root for the web runtime. CONSTA_MODULES=demo (the default) serves
- * in-memory demo modules with no database; "real" builds the modules on Postgres.
+ * Composition root for the web runtime: the modules on Postgres and S3 (Docker
+ * Compose locally). With CONSTA_ADAPTERS=fake, the paid services are fakes;
+ * ingestion still goes to Trigger.dev (`pnpm dev:jobs` locally).
+ * Better Auth reads BETTER_AUTH_SECRET and BETTER_AUTH_URL itself.
  */
 export function container(): Container {
-  built ??= (process.env.CONSTA_MODULES ?? "demo") === "demo" ? demoContainer() : realContainer();
+  built ??= buildContainer();
   return built;
 }
 
-function demoContainer(): Container {
-  const state = (shared.constaDemoState ??= createDemoState({ lawyer: DEMO_LAWYER, now: Date.now }));
-  const modules = createDemoModules(state, {
-    now: Date.now,
-    pause: () => new Promise((resolve) => setTimeout(resolve, STATEMENT_PAUSE_MS)),
-  });
-  return { ...modules, demoFiles: state.files };
-}
-
-/** With CONSTA_ADAPTERS=fake, ingestion runs in-process instead of on Trigger.dev. */
-function realContainer(): Container {
+function buildContainer(): Container {
   const env = process.env;
   const db = createDb(env.DATABASE_URL ?? "postgres://consta:consta@localhost:5432/consta");
+  const uow = new DrizzleUnitOfWork(db);
   const adapters = adaptersFromEnv(env);
-  const metering = createMetering({ db });
-
-  const ingestion = createIngestion({ db, metering, ...adapters });
-  const jobs =
-    (env.CONSTA_ADAPTERS ?? "fake") === "fake"
-      ? new InlineJobs(() => (caseFileId) => ingestInline(ingestion, caseFileId))
-      : createTriggerJobs();
+  const metering = new Metering({ uow });
+  const jobs = jobsFromEnv(env);
 
   return {
-    caseFiles: createCaseFiles({ db, files: adapters.files, jobs, metering }),
-    answering: createAnswering({ db, metering, ...adapters }),
+    caseFiles: new CaseFiles({ uow, files: adapters.files, jobs, metering }),
+    answering: createAnswering({ uow, metering, ...adapters }),
+    auth: createAuth({ db, mailer: adapters.mailer, metering, limitSignIns: !usesFakeAdapters(env) }),
   };
 }

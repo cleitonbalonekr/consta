@@ -12,12 +12,12 @@
     "test:unit": "vitest run --project unit",
     "test:component": "vitest run --project component",
     "test:integration": "vitest run --project integration",
-    "test:e2e": "playwright test",
-    "demo:pdf": "tsx scripts/write-sample-pdf.ts"
+    "test:e2e": "playwright test"
   },
   "dependencies": {
     "@consta/adapters": "workspace:*",
     "@consta/core": "workspace:*",
+    "better-auth": "1.7.7",
     "lucide-react": "^1.51.0",
     "next": "16.3.8",
     "pdfjs-dist": "^6.4.299",
@@ -40,7 +40,6 @@
     "jsdom": "^30.1.1",
     "pdf-lib": "^1.17.1",
     "tailwindcss": "^4",
-    "tsx": "^4.23.15",
     "typescript": "^5",
     "vitest": "^5.0.3"
   }

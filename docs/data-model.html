@@ -1,0 +1,458 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- Data model diagram for packages/core/src/db/schema.ts. Update it when the schema changes. -->
+<title>Consta Data Model</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans+Condensed:wght@500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+/* Layout: one wide schema plate (scrolls on phones), then a narrow reading column of notes. */
+:root {
+  --bg: #f3f5f7; --card: #ffffff; --head: #e9edf1; --fg: #18202b; --muted: #5b6676; --line: #c9d1db;
+  --cascade: #0f766e; --cascade-tint: rgba(15,118,110,.06);
+  --null: #b45309; --kept-tint: rgba(180,83,9,.06);
+  --ref: #6d28d9;
+  --display: "IBM Plex Sans Condensed", "Arial Narrow", system-ui, sans-serif;
+  --body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #0f141a; --card: #161d26; --head: #1d2631; --fg: #e3e8ee; --muted: #93a0b0; --line: #2e3a48;
+  --cascade: #2dd4bf; --cascade-tint: rgba(45,212,191,.06);
+  --null: #f59e0b; --kept-tint: rgba(245,158,11,.06);
+  --ref: #b9a2fb; color-scheme: dark;
+} }
+:root[data-theme="dark"] {
+  --bg: #0f141a; --card: #161d26; --head: #1d2631; --fg: #e3e8ee; --muted: #93a0b0; --line: #2e3a48;
+  --cascade: #2dd4bf; --cascade-tint: rgba(45,212,191,.06);
+  --null: #f59e0b; --kept-tint: rgba(245,158,11,.06);
+  --ref: #b9a2fb; color-scheme: dark;
+}
+body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.6 var(--body); padding: 40px 16px 64px; }
+.wrap { max-width: 1280px; margin: 0 auto; display: grid; gap: 40px; }
+.col { max-width: 720px; display: grid; gap: 16px; min-width: 0; }
+.eyebrow { font: 500 12px/1.4 var(--mono); color: var(--muted); letter-spacing: .02em; }
+h1 { font: 600 clamp(28px, 4vw, 40px)/1.1 var(--display); margin: 6px 0 10px; text-wrap: balance; letter-spacing: -.01em; }
+h2 { font: 600 22px/1.2 var(--display); margin: 0; text-wrap: balance; }
+p { margin: 0; }
+.lead { color: var(--muted); max-width: 65ch; }
+code { font: 500 .88em var(--mono); }
+
+figure { margin: 0; display: grid; gap: 14px; }
+.plate { overflow-x: auto; background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 12px; }
+.plate svg { display: block; width: 100%; min-width: 1060px; height: auto; }
+figcaption { color: var(--muted); font-size: 14px; max-width: 80ch; }
+
+.legend { display: flex; flex-wrap: wrap; gap: 10px 24px; font-size: 13px; color: var(--muted); }
+.legend span { display: inline-flex; align-items: center; gap: 8px; }
+.legend svg { width: 34px; height: 10px; overflow: visible; }
+
+/* diagram */
+.box { fill: var(--card); stroke: var(--line); stroke-width: 1; }
+.head { fill: var(--head); }
+.sep { stroke: var(--line); }
+.hub .box { stroke: var(--cascade); stroke-width: 1.6; }
+.ext .box { stroke-dasharray: 4 3; fill: var(--bg); }
+.ext .head { fill: transparent; }
+.tname { font: 600 13px var(--mono); fill: var(--fg); }
+.tnote { font: 400 10.5px var(--body); fill: var(--muted); }
+.badge { font: 600 9.5px var(--mono); fill: var(--muted); letter-spacing: .04em; }
+.fname { font: 400 11px var(--mono); fill: var(--fg); }
+.ftype { font: 400 11px var(--mono); fill: var(--muted); }
+.ftype.ref, .ftype.user { fill: var(--ref); }
+.reg-cascade { fill: var(--cascade-tint); stroke: var(--cascade); stroke-opacity: .35; stroke-dasharray: 2 4; }
+.reg-kept { fill: var(--kept-tint); stroke: var(--null); stroke-opacity: .35; stroke-dasharray: 2 4; }
+.rlabel { font: 600 12px var(--display); letter-spacing: .06em; text-transform: uppercase; }
+.rlabel.cascade, .elabel.cascade { fill: var(--cascade); }
+.rlabel.kept, .elabel.null { fill: var(--null); }
+.elabel { font: 500 10.5px var(--mono); }
+.elabel.none { fill: var(--muted); }
+.e-cascade { fill: none; stroke: var(--cascade); stroke-width: 1.6; }
+.e-null { fill: none; stroke: var(--null); stroke-width: 1.4; stroke-dasharray: 6 4; }
+.e-none { fill: none; stroke: var(--muted); stroke-width: 1.4; stroke-dasharray: 1.5 3.5; stroke-linecap: round; }
+.dot, .m-cascade { fill: var(--cascade); }
+.m-null { fill: var(--null); }
+.m-none { fill: var(--muted); }
+
+/* status lifecycle */
+.flow { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font: 500 12.5px var(--mono); }
+.flow .st { padding: 3px 9px; border: 1px solid var(--line); border-radius: 4px; background: var(--card); }
+.flow .st.ok { border-color: var(--cascade); color: var(--cascade); }
+.flow .st.bad { border-color: var(--null); color: var(--null); }
+.flow .arr { color: var(--muted); }
+.side { font-size: 13.5px; color: var(--muted); }
+
+pre { margin: 0; background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; overflow-x: auto; font: 12.5px/1.55 var(--mono); }
+pre .c { color: var(--muted); } pre .r { color: var(--ref); }
+
+ol.findings { list-style: none; margin: 0; padding: 0; display: grid; gap: 18px; counter-reset: f; }
+.findings li { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; min-width: 0; }
+.findings .tag { grid-row: span 2; align-self: start; font: 600 10.5px/1 var(--mono); letter-spacing: .05em; text-transform: uppercase; padding: 5px 7px; border-radius: 4px; border: 1px solid currentColor; min-width: 64px; text-align: center; }
+.tag.design { color: var(--cascade); } .tag.gap { color: var(--null); } .tag.note { color: var(--muted); }
+.findings b { font-weight: 600; }
+.findings p { color: var(--muted); font-size: 14.5px; min-width: 0; }
+.enums { display: grid; grid-template-columns: max-content 1fr; gap: 8px 18px; font-size: 13.5px; }
+.enums dt { font: 500 12.5px var(--mono); }
+.enums dd { margin: 0; color: var(--muted); font-family: var(--mono); font-size: 12.5px; min-width: 0; }
+@media (max-width: 560px) { .enums { grid-template-columns: 1fr; gap: 2px 0; } .enums dd { margin-bottom: 8px; } }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <header class="col">
+    <div class="eyebrow">packages/core/src/db/schema.ts · 10 tables · Postgres + pgvector</div>
+    <h1>Consta Data Model</h1>
+    <p class="lead">Everything hangs off <code>case_file</code>. The schema is organized around one question: what happens when a lawyer deletes a case file? Content derived from the PDF goes with it. What the lawyer was billed for stays.</p>
+  </header>
+
+  <figure>
+    <div class="plate"><svg viewBox="0 0 1280 700" role="img" aria-label="Entity-relationship diagram of Consta's ten Postgres tables. case_file is the hub: six content tables (ingestion_range, page, passage, peca, fact, question) cascade-delete with it, usage_event keeps its row with case_file_id set to null, and quota_charge has no foreign key so the page charge survives. lawyer_id references the Better Auth user table except on usage_event and quota_charge, and passages, facts, peças and answer citations point at pages by number without a constraint.">
+<defs>
+<marker id="a-cascade" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="m-cascade" d="M0 0 L10 5 L0 10 z"/></marker>
+<marker id="a-null" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="m-null" d="M0 0 L10 5 L0 10 z"/></marker>
+<marker id="a-none" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="m-none" d="M0 0 L10 5 L0 10 z"/></marker>
+</defs>
+
+<rect class="reg-cascade" x="600" y="20" width="674" height="660" rx="10"/>
+<text class="rlabel cascade" x="616" y="40">Deleted with the case file</text>
+<rect class="reg-kept" x="10" y="360" width="574" height="262" rx="10"/>
+<text class="rlabel kept" x="22" y="385">Kept after the case file is deleted</text>
+<path class="e-cascade" d="M620 107.5 H572" marker-end="url(#a-cascade)"/>
+<path class="e-cascade" d="M620 509.5 V58 H945 V509.5"/>
+<path class="e-cascade" d="M620 124.5 H660"/><circle class="dot" cx="620" cy="124.5" r="2.6"/>
+<path class="e-cascade" d="M620 307.5 H660"/><circle class="dot" cx="620" cy="307.5" r="2.6"/>
+<path class="e-cascade" d="M620 509.5 H660"/><circle class="dot" cx="620" cy="509.5" r="2.6"/>
+<path class="e-cascade" d="M945 124.5 H980"/><circle class="dot" cx="945" cy="124.5" r="2.6"/>
+<path class="e-cascade" d="M945 324.5 H980"/><circle class="dot" cx="945" cy="324.5" r="2.6"/>
+<path class="e-cascade" d="M945 509.5 H980"/><circle class="dot" cx="945" cy="509.5" r="2.6"/>
+<text class="elabel cascade" x="782.5" y="52" text-anchor="middle">case_file_id · on delete cascade</text>
+<path class="e-null" d="M1230 560.5 H1254 V107.5 H1232" marker-end="url(#a-null)"/>
+<text class="elabel null" transform="translate(1266 334) rotate(-90)" text-anchor="middle">peca_id · on delete set null</text>
+<path class="e-null" d="M150 400 V338 H380 V311" marker-end="url(#a-null)"/>
+<text class="elabel null" x="158" y="331">on delete set null</text>
+<path class="e-none" d="M500 400 V311" marker-end="url(#a-none)"/>
+<text class="elabel none" x="492" y="345" text-anchor="end">no FK</text>
+<g class="tbl ext">
+<rect class="box" x="20" y="70" width="250" height="52" rx="6"/>
+<rect class="head" x="21" y="71" width="248" height="24" rx="5"/>
+<line class="sep" x1="20" y1="95" x2="270" y2="95"/>
+<text class="tname" x="30" y="87">user</text>
+<text class="tnote" x="260" y="87" text-anchor="end">Better Auth</text>
+<text class="badge" x="30" y="111.5">PK</text>
+<text class="fname" x="64" y="111.5">id</text>
+<text class="ftype" x="260" y="111.5" text-anchor="end">text</text>
+</g>
+<g class="tbl">
+<rect class="box" x="20" y="150" width="250" height="103" rx="6"/>
+<rect class="head" x="21" y="151" width="248" height="24" rx="5"/>
+<line class="sep" x1="20" y1="175" x2="270" y2="175"/>
+<text class="tname" x="30" y="167">lawyer_plan</text>
+<text class="badge" x="30" y="191.5">PK</text>
+<text class="fname" x="64" y="191.5">lawyer_id</text>
+<text class="ftype user" x="260" y="191.5" text-anchor="end">text ⇢ user</text>
+<text class="fname" x="64" y="208.5">plan</text>
+<text class="ftype" x="260" y="208.5" text-anchor="end">enum</text>
+<text class="fname" x="64" y="225.5">page_quota</text>
+<text class="ftype" x="260" y="225.5" text-anchor="end">int</text>
+<text class="fname" x="64" y="242.5">created_at</text>
+<text class="ftype" x="260" y="242.5" text-anchor="end">tstz</text>
+</g>
+<g class="tbl hub">
+<rect class="box" x="320" y="70" width="250" height="239" rx="6"/>
+<rect class="head" x="321" y="71" width="248" height="24" rx="5"/>
+<line class="sep" x1="320" y1="95" x2="570" y2="95"/>
+<text class="tname" x="330" y="87">case_file</text>
+<text class="badge" x="330" y="111.5">PK</text>
+<text class="fname" x="364" y="111.5">id</text>
+<text class="ftype" x="560" y="111.5" text-anchor="end">uuid</text>
+<text class="fname" x="364" y="128.5">lawyer_id</text>
+<text class="ftype user" x="560" y="128.5" text-anchor="end">text ⇢ user</text>
+<text class="fname" x="364" y="145.5">name</text>
+<text class="ftype" x="560" y="145.5" text-anchor="end">text</text>
+<text class="badge" x="330" y="162.5">UQ</text>
+<text class="fname" x="364" y="162.5">storage_key</text>
+<text class="ftype" x="560" y="162.5" text-anchor="end">text</text>
+<text class="fname" x="364" y="179.5">upload_id</text>
+<text class="ftype" x="560" y="179.5" text-anchor="end">text?</text>
+<text class="fname" x="364" y="196.5">size_bytes</text>
+<text class="ftype" x="560" y="196.5" text-anchor="end">int</text>
+<text class="fname" x="364" y="213.5">page_count</text>
+<text class="ftype" x="560" y="213.5" text-anchor="end">int</text>
+<text class="fname" x="364" y="230.5">status</text>
+<text class="ftype" x="560" y="230.5" text-anchor="end">enum</text>
+<text class="fname" x="364" y="247.5">pages_done</text>
+<text class="ftype" x="560" y="247.5" text-anchor="end">int</text>
+<text class="fname" x="364" y="264.5">error</text>
+<text class="ftype" x="560" y="264.5" text-anchor="end">text?</text>
+<text class="fname" x="364" y="281.5">created_at</text>
+<text class="ftype" x="560" y="281.5" text-anchor="end">tstz</text>
+<text class="fname" x="364" y="298.5">ready_at</text>
+<text class="ftype" x="560" y="298.5" text-anchor="end">tstz?</text>
+</g>
+<g class="tbl">
+<rect class="box" x="20" y="400" width="260" height="205" rx="6"/>
+<rect class="head" x="21" y="401" width="258" height="24" rx="5"/>
+<line class="sep" x1="20" y1="425" x2="280" y2="425"/>
+<text class="tname" x="30" y="417">usage_event</text>
+<text class="badge" x="30" y="441.5">PK</text>
+<text class="fname" x="64" y="441.5">id</text>
+<text class="ftype" x="270" y="441.5" text-anchor="end">uuid</text>
+<text class="fname" x="64" y="458.5">lawyer_id</text>
+<text class="ftype user" x="270" y="458.5" text-anchor="end">text ⇢ user</text>
+<text class="badge" x="30" y="475.5">FK</text>
+<text class="fname" x="64" y="475.5">case_file_id</text>
+<text class="ftype" x="270" y="475.5" text-anchor="end">uuid?</text>
+<text class="fname" x="64" y="492.5">kind</text>
+<text class="ftype" x="270" y="492.5" text-anchor="end">enum</text>
+<text class="fname" x="64" y="509.5">provider</text>
+<text class="ftype" x="270" y="509.5" text-anchor="end">text</text>
+<text class="fname" x="64" y="526.5">model</text>
+<text class="ftype" x="270" y="526.5" text-anchor="end">text</text>
+<text class="fname" x="64" y="543.5">units</text>
+<text class="ftype" x="270" y="543.5" text-anchor="end">int</text>
+<text class="fname" x="64" y="560.5">unit</text>
+<text class="ftype" x="270" y="560.5" text-anchor="end">page | token</text>
+<text class="fname" x="64" y="577.5">cost_usd</text>
+<text class="ftype" x="270" y="577.5" text-anchor="end">numeric(12,6)</text>
+<text class="fname" x="64" y="594.5">created_at</text>
+<text class="ftype" x="270" y="594.5" text-anchor="end">tstz</text>
+</g>
+<g class="tbl">
+<rect class="box" x="310" y="400" width="260" height="120" rx="6"/>
+<rect class="head" x="311" y="401" width="258" height="24" rx="5"/>
+<line class="sep" x1="310" y1="425" x2="570" y2="425"/>
+<text class="tname" x="320" y="417">quota_charge</text>
+<text class="badge" x="320" y="441.5">PK</text>
+<text class="fname" x="354" y="441.5">id</text>
+<text class="ftype" x="560" y="441.5" text-anchor="end">uuid</text>
+<text class="fname" x="354" y="458.5">lawyer_id</text>
+<text class="ftype user" x="560" y="458.5" text-anchor="end">text ⇢ user</text>
+<text class="fname" x="354" y="475.5">case_file_id</text>
+<text class="ftype" x="560" y="475.5" text-anchor="end">uuid?</text>
+<text class="fname" x="354" y="492.5">pages</text>
+<text class="ftype" x="560" y="492.5" text-anchor="end">int</text>
+<text class="fname" x="354" y="509.5">created_at</text>
+<text class="ftype" x="560" y="509.5" text-anchor="end">tstz</text>
+</g>
+<g class="tbl">
+<rect class="box" x="660" y="70" width="250" height="171" rx="6"/>
+<rect class="head" x="661" y="71" width="248" height="24" rx="5"/>
+<line class="sep" x1="660" y1="95" x2="910" y2="95"/>
+<text class="tname" x="670" y="87">ingestion_range</text>
+<text class="badge" x="670" y="111.5">PK</text>
+<text class="fname" x="704" y="111.5">id</text>
+<text class="ftype" x="900" y="111.5" text-anchor="end">uuid</text>
+<text class="badge" x="670" y="128.5">FK</text>
+<text class="fname" x="704" y="128.5">case_file_id</text>
+<text class="ftype" x="900" y="128.5" text-anchor="end">uuid</text>
+<text class="badge" x="670" y="145.5">U</text>
+<text class="fname" x="704" y="145.5">first_page</text>
+<text class="ftype" x="900" y="145.5" text-anchor="end">int</text>
+<text class="fname" x="704" y="162.5">last_page</text>
+<text class="ftype" x="900" y="162.5" text-anchor="end">int</text>
+<text class="fname" x="704" y="179.5">status</text>
+<text class="ftype" x="900" y="179.5" text-anchor="end">text enum</text>
+<text class="fname" x="704" y="196.5">attempts</text>
+<text class="ftype" x="900" y="196.5" text-anchor="end">int</text>
+<text class="fname" x="704" y="213.5">started_at</text>
+<text class="ftype" x="900" y="213.5" text-anchor="end">tstz?</text>
+<text class="fname" x="704" y="230.5">finished_at</text>
+<text class="ftype" x="900" y="230.5" text-anchor="end">tstz?</text>
+</g>
+<g class="tbl">
+<rect class="box" x="660" y="270" width="250" height="154" rx="6"/>
+<rect class="head" x="661" y="271" width="248" height="24" rx="5"/>
+<line class="sep" x1="660" y1="295" x2="910" y2="295"/>
+<text class="tname" x="670" y="287">page</text>
+<text class="tnote" x="900" y="287" text-anchor="end">no PK</text>
+<text class="badge" x="670" y="311.5">FK U</text>
+<text class="fname" x="704" y="311.5">case_file_id</text>
+<text class="ftype" x="900" y="311.5" text-anchor="end">uuid</text>
+<text class="badge" x="670" y="328.5">U</text>
+<text class="fname" x="704" y="328.5">number</text>
+<text class="ftype" x="900" y="328.5" text-anchor="end">int</text>
+<text class="fname" x="704" y="345.5">folha</text>
+<text class="ftype" x="900" y="345.5" text-anchor="end">text?</text>
+<text class="fname" x="704" y="362.5">source</text>
+<text class="ftype" x="900" y="362.5" text-anchor="end">enum</text>
+<text class="fname" x="704" y="379.5">text</text>
+<text class="ftype" x="900" y="379.5" text-anchor="end">text</text>
+<text class="fname" x="704" y="396.5">blocks</text>
+<text class="ftype" x="900" y="396.5" text-anchor="end">jsonb {text, box}[]</text>
+<text class="fname" x="704" y="413.5">ocr_confidence</text>
+<text class="ftype" x="900" y="413.5" text-anchor="end">real?</text>
+</g>
+<g class="tbl">
+<rect class="box" x="660" y="455" width="250" height="171" rx="6"/>
+<rect class="head" x="661" y="456" width="248" height="24" rx="5"/>
+<line class="sep" x1="660" y1="480" x2="910" y2="480"/>
+<text class="tname" x="670" y="472">passage</text>
+<text class="badge" x="670" y="496.5">PK</text>
+<text class="fname" x="704" y="496.5">id</text>
+<text class="ftype" x="900" y="496.5" text-anchor="end">uuid</text>
+<text class="badge" x="670" y="513.5">FK</text>
+<text class="fname" x="704" y="513.5">case_file_id</text>
+<text class="ftype" x="900" y="513.5" text-anchor="end">uuid</text>
+<text class="fname" x="704" y="530.5">page</text>
+<text class="ftype ref" x="900" y="530.5" text-anchor="end">int ⇢ page</text>
+<text class="fname" x="704" y="547.5">text</text>
+<text class="ftype" x="900" y="547.5" text-anchor="end">text</text>
+<text class="fname" x="704" y="564.5">tsv</text>
+<text class="ftype" x="900" y="564.5" text-anchor="end">tsvector, generated</text>
+<text class="fname" x="704" y="581.5">embedding</text>
+<text class="ftype" x="900" y="581.5" text-anchor="end">halfvec(1024)</text>
+<text class="fname" x="704" y="598.5">embedding_model</text>
+<text class="ftype" x="900" y="598.5" text-anchor="end">text</text>
+<text class="fname" x="704" y="615.5">block_indexes</text>
+<text class="ftype ref" x="900" y="615.5" text-anchor="end">int[] ⇢ blocks</text>
+</g>
+<g class="tbl">
+<rect class="box" x="980" y="70" width="250" height="171" rx="6"/>
+<rect class="head" x="981" y="71" width="248" height="24" rx="5"/>
+<line class="sep" x1="980" y1="95" x2="1230" y2="95"/>
+<text class="tname" x="990" y="87">peca</text>
+<text class="badge" x="990" y="111.5">PK</text>
+<text class="fname" x="1024" y="111.5">id</text>
+<text class="ftype" x="1220" y="111.5" text-anchor="end">uuid</text>
+<text class="badge" x="990" y="128.5">FK</text>
+<text class="fname" x="1024" y="128.5">case_file_id</text>
+<text class="ftype" x="1220" y="128.5" text-anchor="end">uuid</text>
+<text class="fname" x="1024" y="145.5">type</text>
+<text class="ftype" x="1220" y="145.5" text-anchor="end">enum</text>
+<text class="fname" x="1024" y="162.5">title</text>
+<text class="ftype" x="1220" y="162.5" text-anchor="end">text</text>
+<text class="fname" x="1024" y="179.5">date</text>
+<text class="ftype" x="1220" y="179.5" text-anchor="end">date?</text>
+<text class="fname" x="1024" y="196.5">first_page</text>
+<text class="ftype ref" x="1220" y="196.5" text-anchor="end">int ⇢ page</text>
+<text class="fname" x="1024" y="213.5">last_page</text>
+<text class="ftype ref" x="1220" y="213.5" text-anchor="end">int ⇢ page</text>
+<text class="fname" x="1024" y="230.5">summary</text>
+<text class="ftype" x="1220" y="230.5" text-anchor="end">text</text>
+</g>
+<g class="tbl">
+<rect class="box" x="980" y="270" width="250" height="154" rx="6"/>
+<rect class="head" x="981" y="271" width="248" height="24" rx="5"/>
+<line class="sep" x1="980" y1="295" x2="1230" y2="295"/>
+<text class="tname" x="990" y="287">fact</text>
+<text class="badge" x="990" y="311.5">PK</text>
+<text class="fname" x="1024" y="311.5">id</text>
+<text class="ftype" x="1220" y="311.5" text-anchor="end">uuid</text>
+<text class="badge" x="990" y="328.5">FK</text>
+<text class="fname" x="1024" y="328.5">case_file_id</text>
+<text class="ftype" x="1220" y="328.5" text-anchor="end">uuid</text>
+<text class="fname" x="1024" y="345.5">kind</text>
+<text class="ftype" x="1220" y="345.5" text-anchor="end">enum</text>
+<text class="fname" x="1024" y="362.5">value</text>
+<text class="ftype" x="1220" y="362.5" text-anchor="end">text</text>
+<text class="fname" x="1024" y="379.5">normalized_value</text>
+<text class="ftype" x="1220" y="379.5" text-anchor="end">text?</text>
+<text class="fname" x="1024" y="396.5">context</text>
+<text class="ftype" x="1220" y="396.5" text-anchor="end">text</text>
+<text class="fname" x="1024" y="413.5">page</text>
+<text class="ftype ref" x="1220" y="413.5" text-anchor="end">int ⇢ page</text>
+</g>
+<g class="tbl">
+<rect class="box" x="980" y="455" width="250" height="205" rx="6"/>
+<rect class="head" x="981" y="456" width="248" height="24" rx="5"/>
+<line class="sep" x1="980" y1="480" x2="1230" y2="480"/>
+<text class="tname" x="990" y="472">question</text>
+<text class="badge" x="990" y="496.5">PK</text>
+<text class="fname" x="1024" y="496.5">id</text>
+<text class="ftype" x="1220" y="496.5" text-anchor="end">uuid</text>
+<text class="badge" x="990" y="513.5">FK</text>
+<text class="fname" x="1024" y="513.5">case_file_id</text>
+<text class="ftype" x="1220" y="513.5" text-anchor="end">uuid</text>
+<text class="fname" x="1024" y="530.5">lawyer_id</text>
+<text class="ftype user" x="1220" y="530.5" text-anchor="end">text ⇢ user</text>
+<text class="fname" x="1024" y="547.5">scope</text>
+<text class="ftype" x="1220" y="547.5" text-anchor="end">text</text>
+<text class="badge" x="990" y="564.5">FK</text>
+<text class="fname" x="1024" y="564.5">peca_id</text>
+<text class="ftype" x="1220" y="564.5" text-anchor="end">uuid?</text>
+<text class="fname" x="1024" y="581.5">text</text>
+<text class="ftype" x="1220" y="581.5" text-anchor="end">text</text>
+<text class="fname" x="1024" y="598.5">answer</text>
+<text class="ftype ref" x="1220" y="598.5" text-anchor="end">jsonb ⇢ page</text>
+<text class="fname" x="1024" y="615.5">dropped_statements</text>
+<text class="ftype" x="1220" y="615.5" text-anchor="end">int</text>
+<text class="fname" x="1024" y="632.5">feedback</text>
+<text class="ftype" x="1220" y="632.5" text-anchor="end">jsonb?</text>
+<text class="fname" x="1024" y="649.5">created_at</text>
+<text class="ftype" x="1220" y="649.5" text-anchor="end">tstz</text>
+</g>
+</svg></div>
+    <div class="legend">
+      <span><svg viewBox="0 0 34 10"><line x1="0" y1="5" x2="34" y2="5" class="e-cascade"/></svg>FK, on delete cascade</span>
+      <span><svg viewBox="0 0 34 10"><line x1="0" y1="5" x2="34" y2="5" class="e-null"/></svg>FK, on delete set null</span>
+      <span><svg viewBox="0 0 34 10"><line x1="0" y1="5" x2="34" y2="5" class="e-none"/></svg>refers to it, no FK</span>
+      <span><code style="color:var(--ref)">⇢ page</code>column holds a value that points at another row, unconstrained</span>
+      <span><code>?</code> nullable · <code>U</code> part of a composite unique index</span>
+    </div>
+    <figcaption>Deleting a case file cascades through the six content tables on the right. <code>usage_event</code> keeps its cost row with <code>case_file_id</code> nulled, and <code>quota_charge</code> has no foreign key at all, so pages already charged stay charged. The <code>user</code> table is Better Auth's; its <code>session</code>, <code>account</code> and <code>verification</code> tables are in the schema but left out of the diagram.</figcaption>
+  </figure>
+
+  <section class="col">
+    <h2>Case file lifecycle</h2>
+    <div class="flow" aria-label="case_file.status lifecycle">
+      <span class="st">uploading</span><span class="arr">→</span>
+      <span class="st">queued</span><span class="arr">→</span>
+      <span class="st">processing</span><span class="arr">→</span>
+      <span class="st">mapping</span><span class="arr">→</span>
+      <span class="st ok">ready</span>
+    </div>
+    <p class="side"><code>failed</code> can follow any step after upload, and <code>deleting</code> marks a case file on its way out. During <code>processing</code>, one <code>ingestion_range</code> row per 100 pages tracks each parallel task, and <code>pages_done</code> counts finished pages. <code>mapping</code> writes <code>peca</code> and <code>fact</code>.</p>
+  </section>
+
+  <section class="col">
+    <h2>Inside <code>question.answer</code></h2>
+    <p class="side">The column is untyped <code>jsonb</code>. The shape it is meant to hold is the <code>Statement</code> type in <code>packages/core/src/answering/index.ts</code>. Citations copy the page number and folha by value.</p>
+<pre><span class="c">// Statement[]: a statement always has at least one citation (ADR-0003)</span>
+[{
+  text: string,
+  citations: [{
+    page:  number,          <span class="r">⇢ page.number</span>
+    folha: string | null,   <span class="c">// copied from page.folha</span>
+    quote: string,
+    boxes: Box[]            <span class="c">// {x0, y0, x1, y1} as fractions of the page</span>
+  }, ...]
+}]</pre>
+  </section>
+
+  <section class="col">
+    <h2>Gaps and planned fixes</h2>
+    <p class="side">The diagram shows the schema as it is today. Each gap below is now an acceptance criterion on the ticket that builds that part.</p>
+    <ol class="findings">
+      <li><span class="tag design">design</span><b>Deletion is built into the foreign keys.</b>
+        <p>Cascade, set null and "no FK" are each used on purpose. Content goes with the case file; usage and quota charges stay. The PDF in S3 is removed separately by <code>CaseFiles.remove</code>.</p></li>
+      <li><span class="tag gap">high</span><b>Quota charging can be oversubscribed, and failed ingestions used up quota.</b>
+        <p>Checking with <code>pagesLeft</code> and then calling <code>chargePages</code> lets two concurrent uploads both fit. Fix: <code>chargePages</code> locks the lawyer's <code>lawyer_plan</code> row, checks and charges in one transaction, and a unique index on <code>quota_charge.case_file_id</code> makes it idempotent (ticket 04). <code>Ingestion.fail</code> gives the pages back (ticket 05).</p></li>
+      <li><span class="tag gap">medium</span><b><code>page</code> has no primary key, and nothing has a foreign key to it.</b>
+        <p>Fix: primary key <code>(case_file_id, number)</code>; <code>passage</code> references it with cascade, so a retried range deletes its pages and the passages follow (ticket 05). <code>fact</code> references it too, and <code>peca</code> and <code>ingestion_range</code> check <code>first_page &lt;= last_page</code> (tickets 05, 09). Citations inside the answer JSON stay unconstrained, which is safe because pages don't change after ready.</p></li>
+      <li><span class="tag gap">medium</span><b><code>question.scope</code> mixes scope and quick action.</b>
+        <p><code>CONTEXT.md</code> treats them as two concepts. Fix: <code>scope</code> becomes an enum of <code>whole-file</code> and <code>peca</code>, a nullable <code>quick_action</code> enum is added, a check ties <code>scope = 'peca'</code> to a non-null <code>peca_id</code>, and <code>peca_id</code> moves to cascade so the check can't be broken (tickets 07, 10, 11).</p></li>
+      <li><span class="tag design">design</span><b><code>lawyer_id</code> references the Better Auth user, except on billing records.</b>
+        <p>Ticket 02 brought the Better Auth tables into the migrations and creates the Trial plan row on first sign-in. <code>lawyer_plan</code>, <code>case_file</code> and <code>question</code> reference <code>user</code>. Only the plan cascades: an account with case files can't be deleted until <code>CaseFiles.remove</code> has deleted them, stored PDFs included. <code>usage_event</code> and <code>quota_charge</code> stay unconstrained so billing records outlive the account.</p></li>
+      <li><span class="tag note">low</span><b>Untyped JSON.</b>
+        <p><code>question.answer</code> gets <code>$type&lt;Statement[]&gt;</code> (ticket 07), and <code>question.feedback</code> gets a type whose "wrong page" flag names a citation by statement and citation index (ticket 14). <code>ingestion_range.status</code> and <code>usage_event.unit</code> stay text enums checked only by the app; that's left as is.</p></li>
+    </ol>
+  </section>
+
+  <section class="col">
+    <h2>Enums</h2>
+    <dl class="enums">
+      <dt>peca_type</dt><dd>peticao-inicial, contestacao, replica, despacho, decisao, sentenca, acordao, recurso, laudo, ata-de-audiencia, procuracao, documento, outro</dd>
+      <dt>fact_kind</dt><dd>person, role, date, amount, event</dd>
+      <dt>page_source</dt><dd>digital, scanned</dd>
+      <dt>plan</dt><dd>trial, pro, enterprise</dd>
+      <dt>usage_kind</dt><dd>ocr, embed, rerank, extract, answer</dd>
+      <dt>indexes worth knowing</dt><dd>passage: GIN on tsv (Portuguese full text), HNSW on embedding (cosine). case_file, question, usage_event, quota_charge: (owner, created_at).</dd>
+    </dl>
+  </section>
+</div>
+</body>
+</html>

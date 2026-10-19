@@ -6,6 +6,8 @@ type Upload = { key: string; parts: Map<number, Uint8Array> };
 export class InMemoryFileStore implements FileStore {
   readonly objects = new Map<string, Uint8Array>();
   private readonly uploads = new Map<string, Upload>();
+  /** Upload id to key, so completing an upload again returns the same size. */
+  private readonly completed = new Map<string, string>();
   private nextUploadId = 1;
 
   async startMultipart(key: string, _contentType: string) {
@@ -16,12 +18,14 @@ export class InMemoryFileStore implements FileStore {
 
   async signPart(key: string, uploadId: string, partNumber: number) {
     this.upload(key, uploadId);
-    return `memory://${key}?uploadId=${uploadId}&partNumber=${partNumber}`;
+    const search = new URLSearchParams({ key, uploadId, partNumber: String(partNumber) });
+    return `memory://part?${search}`;
   }
 
-  /** Test helper: what the browser does with a signed part URL. */
-  async putPart(key: string, uploadId: string, partNumber: number, bytes: Uint8Array) {
-    this.upload(key, uploadId).parts.set(partNumber, bytes);
+  /** Test helper: what the browser does with a URL from signPart. */
+  async putPart(url: string, bytes: Uint8Array) {
+    const search = new URL(url).searchParams;
+    this.upload(search.get("key")!, search.get("uploadId")!).parts.set(Number(search.get("partNumber")), bytes);
   }
 
   /** Test helper: stores a whole object at once. */
@@ -35,25 +39,19 @@ export class InMemoryFileStore implements FileStore {
       .map(([partNumber, bytes]) => ({ partNumber, etag: `etag-${partNumber}`, size: bytes.length }));
   }
 
-  async completeMultipart(key: string, uploadId: string, parts: UploadedPart[]) {
-    const upload = this.upload(key, uploadId);
-    const chunks = parts
-      .map((part) => part.partNumber)
-      .sort((a, b) => a - b)
-      .map((n) => {
-        const bytes = upload.parts.get(n);
-        if (!bytes) throw new Error(`Part ${n} of ${key} was never uploaded.`);
-        return bytes;
-      });
-    const size = chunks.reduce((total, chunk) => total + chunk.length, 0);
-    const whole = new Uint8Array(size);
+  async completeMultipart(key: string, uploadId: string) {
+    if (this.completed.get(uploadId) === key) return { bytes: (await this.read(key)).length };
+    const parts = [...this.upload(key, uploadId).parts.entries()].sort(([a], [b]) => a - b);
+    const whole = new Uint8Array(parts.reduce((total, [, bytes]) => total + bytes.length, 0));
     let offset = 0;
-    for (const chunk of chunks) {
-      whole.set(chunk, offset);
-      offset += chunk.length;
+    for (const [, bytes] of parts) {
+      whole.set(bytes, offset);
+      offset += bytes.length;
     }
     this.objects.set(key, whole);
     this.uploads.delete(uploadId);
+    this.completed.set(uploadId, key);
+    return { bytes: whole.length };
   }
 
   async abortMultipart(key: string, uploadId: string) {

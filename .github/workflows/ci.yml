@@ -1,0 +1,94 @@
+name: CI
+
+# Every pull request, and every push to main through deploy.yml, runs the same checks.
+on:
+  pull_request:
+  workflow_call:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  # Only a newer push to the same pull request cancels a run; checks before a deploy always finish.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  checks:
+    name: Typecheck, lint and tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      # The images and settings of docker-compose.yml.
+      minio:
+        image: bitnamilegacy/minio:2025.7.23
+        env:
+          MINIO_ROOT_USER: consta
+          MINIO_ROOT_PASSWORD: consta-secret
+          MINIO_DEFAULT_BUCKETS: consta
+          MINIO_API_CORS_ALLOW_ORIGIN: http://localhost:3000,http://localhost:3100
+        ports:
+          - 9000:9000
+        options: >-
+          --health-cmd "curl -fs http://localhost:9000/minio/health/live"
+          --health-interval 2s --health-timeout 2s --health-retries 30
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm lint
+      - run: pnpm test:unit
+      - run: pnpm test:component
+      # PGlite runs Postgres in-process; the S3 contract test uses the MinIO service.
+      - run: pnpm test:integration
+
+  e2e:
+    name: E2E against a production build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      # The images and settings of docker-compose.yml.
+      minio:
+        image: bitnamilegacy/minio:2025.7.23
+        env:
+          MINIO_ROOT_USER: consta
+          MINIO_ROOT_PASSWORD: consta-secret
+          MINIO_DEFAULT_BUCKETS: consta
+          MINIO_API_CORS_ALLOW_ORIGIN: http://localhost:3000,http://localhost:3100
+        ports:
+          - 9000:9000
+        options: >-
+          --health-cmd "curl -fs http://localhost:9000/minio/health/live"
+          --health-interval 2s --health-timeout 2s --health-retries 30
+      postgres:
+        image: pgvector/pgvector:pg17
+        env:
+          POSTGRES_USER: consta
+          POSTGRES_PASSWORD: consta
+          POSTGRES_DB: consta
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U consta"
+          --health-interval 2s --health-timeout 2s --health-retries 30
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @consta/web exec playwright install --with-deps chromium
+      # Playwright migrates, builds and starts the app itself, with fake adapters and recorded Jobs: no secrets.
+      - run: pnpm test:e2e
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-traces
+          path: |
+            apps/web/test-results/
+            apps/web/e2e-server.log
+          retention-days: 7

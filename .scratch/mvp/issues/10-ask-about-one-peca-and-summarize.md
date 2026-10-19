@@ -8,6 +8,7 @@
 
 - [ ] Peça scope reads the full page range; a range over the token budget returns `refused: "scope-too-large"`
 - [ ] Sources are one per page, with caching requested
+- [ ] Peça questions are saved with `scope = 'peca'` and the `peca_id`
 - [ ] The summary preset produces cited paragraphs
 - [ ] Integration tests cover scope selection, the budget refusal and the caching request
 - [ ] E2E covers asking about a peça and requesting a summary, in fake mode

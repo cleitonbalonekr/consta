@@ -30,7 +30,7 @@ _Avoid_: page (when the stamped number is meant)
 A page whose text was produced by a court system and can be read directly.
 
 **Scanned page**:
-A page that is an image (a scan, a photo, handwriting) and must be read by OCR.
+A page that is an image (a scan, a photo, handwriting) and must be read by OCR. The MVP does not read it: it marks the page as not read, and no statement can cite it (ADR-0010).
 _Avoid_: image page
 
 **Document map**:
@@ -80,5 +80,5 @@ What a lawyer pays for: Trial, Pro or Enterprise.
 _Avoid_: tier, subscription
 
 **Page quota**:
-The number of pages a lawyer's plan allows them to ingest each month. Pages count once ingested, even if the case file is deleted later.
+The number of pages a lawyer's plan allows them to ingest each month. Pages count once ingested, even if the case file is deleted later. A case file whose ingestion fails gives its pages back.
 _Avoid_: credits, limit

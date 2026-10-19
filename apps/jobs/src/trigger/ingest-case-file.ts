@@ -1,4 +1,4 @@
-import type { PageRange } from "@consta/core";
+import { PageRange } from "@consta/core";
 import { INGEST_CASE_FILE_TASK } from "@consta/adapters";
 import type { IngestCaseFilePayload } from "@consta/adapters";
 import { task } from "@trigger.dev/sdk";
@@ -9,8 +9,10 @@ export const ingestRange = task({
   id: "ingest-range",
   machine: "medium-1x",
   retry: { maxAttempts: 3 },
-  run: async (payload: IngestCaseFilePayload & { range: PageRange }) => {
-    await container().ingestion.ingestRange(payload.caseFileId, payload.range);
+  // The payload went through JSON, so the range is a plain object again.
+  run: async (payload: IngestCaseFilePayload & { range: { first: number; last: number } }) => {
+    const range = PageRange.from(payload.range.first, payload.range.last);
+    await container().ingestion.ingestRange(payload.caseFileId, range);
   },
 });
 

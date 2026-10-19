@@ -1,10 +1,13 @@
-import { SAMPLE_CASE_FILE_ID } from "../../support/sample-pdf";
-import { expect, test } from "../../support/fixtures";
+import { expect, test, uniqueName } from "../../support/fixtures";
 
-test("the case file page fits a tablet, and the viewer opens over it", async ({ caseFile, answer, viewer, page }) => {
-  await caseFile.goto(SAMPLE_CASE_FILE_ID);
+// Needs a ready case file and real answers: ingestion arrives with ticket 05, Answering with 07.
+test.fixme();
 
-  await expect(caseFile.documentMap).toBeVisible();
+test("the case file page fits a tablet, and the viewer opens over it", async ({ caseFileList, caseFile, answer, viewer, page }) => {
+  await caseFileList.goto();
+  await caseFileList.uploadAndOpen(uniqueName("Autos no tablet"));
+
+  await expect(caseFile.documentMap).toBeVisible({ timeout: 60_000 });
   await expect(caseFile.byId("question-input")).toBeInViewport();
   const scrollWidth = await page.evaluate(() => document.documentElement.scrollWidth);
   expect(scrollWidth).toBeLessThanOrEqual(page.viewportSize()!.width);

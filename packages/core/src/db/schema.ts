@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
 import {
+  boolean,
   customType,
   date,
   halfvec,
@@ -32,9 +33,87 @@ export const factKind = pgEnum("fact_kind", factKinds);
 export const plan = pgEnum("plan", plans);
 export const usageKind = pgEnum("usage_kind", ["ocr", "embed", "rerank", "extract", "answer"]);
 
-/** Lawyer ids are Better Auth user ids. */
+const updatedAt = () =>
+  timestamp("updated_at", { withTimezone: true })
+    .notNull()
+    .defaultNow()
+    .$onUpdate(() => new Date());
+
+// Better Auth's tables. Their property names are Better Auth's field names, which its
+// Drizzle adapter looks up; a lawyer is a `user` row. Don't rename them.
+
+export const user = pgTable("user", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  email: text("email").notNull().unique(),
+  emailVerified: boolean("email_verified").notNull().default(false),
+  image: text("image"),
+  createdAt: createdAt(),
+  updatedAt: updatedAt(),
+});
+
+export const session = pgTable(
+  "session",
+  {
+    id: text("id").primaryKey(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    token: text("token").notNull().unique(),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+    ipAddress: text("ip_address"),
+    userAgent: text("user_agent"),
+    userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+  },
+  (t) => [index("session_user_id_idx").on(t.userId)],
+);
+
+export const account = pgTable(
+  "account",
+  {
+    id: text("id").primaryKey(),
+    accountId: text("account_id").notNull(),
+    providerId: text("provider_id").notNull(),
+    userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+    accessToken: text("access_token"),
+    refreshToken: text("refresh_token"),
+    idToken: text("id_token"),
+    accessTokenExpiresAt: timestamp("access_token_expires_at", { withTimezone: true }),
+    refreshTokenExpiresAt: timestamp("refresh_token_expires_at", { withTimezone: true }),
+    scope: text("scope"),
+    password: text("password"),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [index("account_user_id_idx").on(t.userId)],
+);
+
+/** Holds magic-link tokens until they are used or expire. */
+export const verification = pgTable(
+  "verification",
+  {
+    id: text("id").primaryKey(),
+    identifier: text("identifier").notNull(),
+    value: text("value").notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [index("verification_identifier_idx").on(t.identifier)],
+);
+
+/**
+ * A lawyer's id is their Better Auth user id. A user with case files can't be
+ * deleted: CaseFiles.remove must delete them first, stored PDFs included.
+ */
+const lawyerId = () =>
+  text("lawyer_id")
+    .notNull()
+    .references(() => user.id);
+
 export const lawyerPlan = pgTable("lawyer_plan", {
-  lawyerId: text("lawyer_id").primaryKey(),
+  lawyerId: text("lawyer_id")
+    .primaryKey()
+    .references(() => user.id, { onDelete: "cascade" }),
   plan: plan("plan").notNull().default("trial"),
   pageQuota: integer("page_quota").notNull(),
   createdAt: createdAt(),
@@ -44,7 +123,7 @@ export const caseFile = pgTable(
   "case_file",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    lawyerId: text("lawyer_id").notNull(),
+    lawyerId: lawyerId(),
     name: text("name").notNull(),
     storageKey: text("storage_key").notNull().unique(),
     uploadId: text("upload_id"),
@@ -147,7 +226,7 @@ export const question = pgTable(
   {
     id: uuid("id").primaryKey().defaultRandom(),
     caseFileId: uuid("case_file_id").notNull().references(() => caseFile.id, { onDelete: "cascade" }),
-    lawyerId: text("lawyer_id").notNull(),
+    lawyerId: lawyerId(),
     /** "whole-file", "peca" or a quick action. */
     scope: text("scope").notNull(),
     pecaId: uuid("peca_id").references(() => peca.id, { onDelete: "set null" }),
@@ -162,7 +241,8 @@ export const question = pgTable(
 
 /**
  * One row per paid provider call. Holds no case-file content, so it outlives
- * a deleted case file (the reference is set to null).
+ * a deleted case file (the reference is set to null). `lawyer_id` has no foreign
+ * key on purpose: billing records outlive the lawyer's account too.
  */
 export const usageEvent = pgTable(
   "usage_event",
@@ -181,7 +261,10 @@ export const usageEvent = pgTable(
   (t) => [index("usage_event_lawyer_created_idx").on(t.lawyerId, t.createdAt)],
 );
 
-/** Pages counted against the page quota. Never decreases when a case file is deleted. */
+/**
+ * Pages counted against the page quota. Never decreases when a case file is deleted.
+ * Like `usage_event`, it has no foreign keys, so it outlives the case file and the account.
+ */
 export const quotaCharge = pgTable(
   "quota_charge",
   {
@@ -191,5 +274,9 @@ export const quotaCharge = pgTable(
     pages: integer("pages").notNull(),
     createdAt: createdAt(),
   },
-  (t) => [index("quota_charge_lawyer_created_idx").on(t.lawyerId, t.createdAt)],
+  (t) => [
+    index("quota_charge_lawyer_created_idx").on(t.lawyerId, t.createdAt),
+    // One charge per case file, so a retried finish can't charge twice (Metering.chargePages).
+    uniqueIndex("quota_charge_case_file_idx").on(t.caseFileId),
+  ],
 );

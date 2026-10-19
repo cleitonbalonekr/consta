@@ -1,5 +1,8 @@
 import { expect, test, uniqueName } from "../../support/fixtures";
 
+// CaseFiles.remove arrives with ticket 12.
+test.fixme();
+
 test("deleting a case file asks for confirmation, then removes it from the list", async ({ caseFileList, page }) => {
   await caseFileList.goto();
   const caseFileId = await caseFileList.uploadAndOpen(uniqueName("Autos para excluir"));

@@ -29,7 +29,7 @@ Tracer bullets in `issues/`, numbered so blockers come first. The frontier is ev
 | 03 | Deploy the pilot environment and CI | 02 |
 | 04 | Upload a case file | 02 |
 | 05 | Ingest digital pages with progress | 04 |
-| 06 | Read scanned pages with OCR | 05 |
+| 06 | Read scanned pages with OCR (deferred, ADR-0010) | 05 |
 | 07 | Ask about the whole case file | 05 |
 | 08 | Open a citation in the viewer | 07 |
 | 09 | Build the document map and facts | 05 |

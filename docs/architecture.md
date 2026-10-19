@@ -1,6 +1,6 @@
 # Architecture
 
-Consta is four deep modules (Case files, Ingestion, Answering, Metering) in one TypeScript package, called from two runtimes: the Next.js app and Trigger.dev tasks. External services sit behind small ports with a production adapter and an in-memory fake. Postgres is not behind a port: modules use it directly and tests run against a real local Postgres.
+Consta is four deep modules (Case files, Ingestion, Answering, Metering) in one TypeScript package, called from two runtimes: the Next.js app and Trigger.dev tasks. External services and the database sit behind small ports with a production adapter and an in-memory fake. Each module owns a repository port for its tables, and a `UnitOfWork` port runs work in one transaction (ADR-0006).
 
 Terms follow [`CONTEXT.md`](../CONTEXT.md) for the domain and the codebase-design vocabulary (module, interface, seam, adapter, depth) for the code. Decisions are in [`docs/adr/`](./adr/).
 
@@ -21,7 +21,6 @@ flowchart LR
   end
   subgraph Ports["Ports (external seams)"]
     FS["FileStore"]
-    OCR["Ocr"]
     EMB["Embedder"]
     RR["Reranker"]
     CM["CitingModel"]
@@ -31,12 +30,12 @@ flowchart LR
   end
   WEB --> CF
   WEB --> ANS
+  WEB --> MET
   JOBS --> ING
   CF --> FS
   CF --> JB
   CF --> MET
   ING --> FS
-  ING --> OCR
   ING --> EMB
   ING --> MX
   ING --> MET
@@ -51,16 +50,16 @@ flowchart LR
   MET --> DB
 ```
 
-The web app only calls Case files and Answering. The task runtime only calls Ingestion. Modules never call each other's internals; Case files starts Ingestion through the `Jobs` port, not by importing it.
+The web app's screens only call Case files and Answering; its sign-in calls Metering once, to give a new lawyer the Trial plan. The task runtime only calls Ingestion. Modules never call each other's internals; Case files starts Ingestion through the `Jobs` port, not by importing it.
 
 ## Modules
 
 | Module | What callers know (interface) | What it hides (implementation) | Called by |
 | --- | --- | --- | --- |
 | **Case files** | Start and finish an upload, view, list, get a read URL, remove | Status lifecycle, page-quota check, multipart upload bookkeeping, ownership checks, ordered deletion of every derived row and the stored PDF | `apps/web` |
-| **Ingestion** | `plan`, `ingestRange`, `map`, `fail`, run in that order; every step is idempotent | Page classification, text and block extraction, OCR of scanned pages, folha detection, passage splitting inside a page, embedding, document map windowing and merging, facts, progress, the ready email | `apps/jobs`, the inline `Jobs` adapter |
+| **Ingestion** | `plan`, `ingestRange`, `map`, `fail`, run in that order; every step is idempotent | Page classification, text and block extraction of digital pages (scanned pages are marked as not read, ADR-0010), folha detection, passage splitting inside a page, embedding, document map windowing and merging, facts, progress, the ready email | `apps/jobs`, the inline `Jobs` adapter |
 | **Answering** | `ask` returns a stream of statements, each with at least one citation | Scope handling, hybrid search and reranking, source blocks per page, token budget, prompt caching, citation-to-page resolution, dropping uncited statements, saving the question, metering | `apps/web` |
-| **Metering** | `record` usage, `pagesLeft` for a lawyer | Cost per provider and unit, the monthly page-quota window, plan limits | The other three modules, the operator page |
+| **Metering** | `record` usage, `startTrial` and `pagesLeft` for a lawyer | Cost per provider and unit, the monthly page-quota window, plan limits | The other three modules, the web app's sign-in, the operator page |
 
 Each module is a folder whose `index.ts` is its whole interface. Code outside the folder imports only from `index.ts`; a lint rule (`no-restricted-imports` on deep paths) enforces it.
 
@@ -75,7 +74,7 @@ Each module is a folder whose `index.ts` is its whole interface. Code outside th
 
 - **A citation names the PDF page and, when the page has one, its folha.** Ingestion detects the stamped folha; Answering adds it to each citation.
 - **Every upload is a new case file**, even a newer download of the same lawsuit. Updating an existing case file comes after the pilot.
-- **Pages count against the page quota once ingested** and are not given back when a case file is deleted.
+- **Pages count against the page quota once ingested** and are not given back when a case file is deleted. They are charged when the upload finishes and given back if ingestion fails.
 - **A lawyer owns case files directly.** When firms arrive, a firm workspace will own case files and lawyers will belong to it; module interfaces take a `LawyerId` today and will take the owner instead.
 
 ## Interfaces
@@ -84,13 +83,12 @@ Sketches. They name every fact a caller must know, including order and error mod
 
 ```ts
 // packages/core/src/case-files/index.ts
-export function createCaseFiles(deps: { db: Db; files: FileStore; jobs: Jobs; metering: Metering }): CaseFiles;
-
-export interface CaseFiles {
+export class CaseFiles {
+  constructor(deps: { uow: UnitOfWork; files: FileStore; jobs: Jobs; metering: Metering });
   /** The browser reads the page count with pdf.js first. Throws QuotaExceeded before any upload starts. */
   startUpload(lawyer: LawyerId, file: { name: string; bytes: number; pages: number }): Promise<{ caseFileId: CaseFileId; uploadId: string }>;
   signUploadPart(lawyer: LawyerId, caseFileId: CaseFileId, partNumber: number): Promise<string>;
-  uploadedParts(lawyer: LawyerId, caseFileId: CaseFileId): Promise<UploadedPart[]>; // lets Uppy resume
+  uploadedParts(lawyer: LawyerId, caseFileId: CaseFileId): Promise<UploadedPart[]>; // lets the browser resume
   /** Closes the upload, recounts pages, re-checks the quota, then starts ingestion. Idempotent. */
   finishUpload(lawyer: LawyerId, caseFileId: CaseFileId): Promise<CaseFileView>;
   view(lawyer: LawyerId, caseFileId: CaseFileId): Promise<CaseFileView>; // status, progress, document map
@@ -102,10 +100,9 @@ export interface CaseFiles {
 
 ```ts
 // packages/core/src/ingestion/index.ts
-export function createIngestion(deps: { db: Db; files: FileStore; ocr: Ocr; embedder: Embedder; extractor: MapExtractor; mailer: Mailer; metering: Metering }): Ingestion;
-
 /** Call order: plan, then ingestRange for every range (in parallel), then map. Any step may be retried. */
-export interface Ingestion {
+export class Ingestion {
+  constructor(deps: { uow: UnitOfWork; files: FileStore; embedder: Embedder; extractor: MapExtractor; mailer: Mailer; metering: Metering });
   plan(caseFileId: CaseFileId): Promise<PageRange[]>;
   /** A retry replaces the pages and passages of that range only. */
   ingestRange(caseFileId: CaseFileId, range: PageRange): Promise<void>;
@@ -117,9 +114,8 @@ export interface Ingestion {
 
 ```ts
 // packages/core/src/answering/index.ts
-export function createAnswering(deps: { db: Db; embedder: Embedder; reranker: Reranker; model: CitingModel; metering: Metering }): Answering;
-
-export interface Answering {
+export class Answering {
+  constructor(deps: { uow: UnitOfWork; embedder: Embedder; reranker: Reranker; model: CitingModel; metering: Metering });
   ask(lawyer: LawyerId, question: QuestionInput): AsyncIterable<AnswerEvent>;
 }
 
@@ -135,18 +131,43 @@ export type AnswerEvent =
   | { type: "done"; questionId: QuestionId; dropped: number }; // dropped = uncited statements removed
 
 export type Statement = { text: string; citations: [Citation, ...Citation[]] }; // never empty, by type
-export type Citation = { page: number; folha?: string; quote: string; boxes: Box[] };
+export type Citation = { page: number; folha: string | null; quote: string; boxes: Box[] };
 ```
 
 ```ts
 // packages/core/src/metering/index.ts
-export interface Metering {
+export class Metering {
+  constructor(deps: { uow: UnitOfWork });
   record(lawyer: LawyerId, caseFileId: CaseFileId | null, usage: Usage[]): Promise<void>;
+  /** On a lawyer's first sign-in. A lawyer who already has a plan keeps it. */
+  startTrial(lawyer: LawyerId): Promise<void>;
   pagesLeft(lawyer: LawyerId): Promise<number>;
-  /** Counts a case file's pages against the quota. Idempotent per case file. */
+  /** Checks and charges in one transaction; throws QuotaExceeded. Idempotent per case file. */
   chargePages(lawyer: LawyerId, caseFileId: CaseFileId, pages: number): Promise<void>;
 }
 ```
+
+```ts
+// packages/core/src/ports/unit-of-work.ts
+/**
+ * Runs work in one transaction and rolls it back when the work throws. A run
+ * inside a run joins the outer transaction, so a module can call another
+ * module's method inside its own run and both commit together.
+ */
+export interface UnitOfWork {
+  run<T>(work: (repos: Repositories) => Promise<T>): Promise<T>;
+}
+
+/** Every module's repository, bound to the current transaction. */
+export type Repositories = {
+  caseFiles: CaseFileRepository;
+  ingestion: IngestionRepository;
+  answering: AnsweringRepository;
+  metering: MeteringRepository;
+};
+```
+
+A module reads and writes only its own repository from `repos`. To change another module's data, it calls that module's interface inside the same run. For example, `finishUpload` runs `metering.chargePages` and `repos.caseFiles.markQueued` in one run: the quota rule stays in Metering, and both writes commit or roll back together. Calls to external services stay outside the run (ADR-0007): `finishUpload` asks `Jobs` to start ingestion only after the run commits. Each module's repository type lives in its folder; the Drizzle adapters live in `src/db/repositories/`, the fakes in `src/ports/fakes/`.
 
 ## Seams and adapters
 
@@ -154,14 +175,16 @@ Each port is a real seam: it has a production adapter and an in-memory fake used
 
 | Port | What it does | Production adapter | Test adapter |
 | --- | --- | --- | --- |
-| `FileStore` | Multipart upload, signed read URL, download, remove | S3-compatible client (Cloudflare R2 now, AWS S3 in São Paulo later) | In-memory store |
-| `Ocr` | Reads a PDF of scanned pages into text blocks with bounding boxes and confidence | Mistral OCR | Returns fixture text |
+| `FileStore` | Multipart upload, signed read URL, download, remove | S3-compatible client (MinIO locally, Cloudflare R2 now, AWS S3 in São Paulo later) | In-memory store |
+| `Ocr` (later, ADR-0010) | Reads a PDF of scanned pages into text blocks with bounding boxes and confidence | Mistral OCR, when ticket 06 adds it again | Returns fixture text |
 | `Embedder` | Embeds passages and questions | Voyage | Deterministic hash vectors |
 | `Reranker` | Orders passages for a question | Voyage | Keeps the input order |
-| `CitingModel` | Answers from source blocks, returning text with the ids of the sources it cites | Claude with native citations | Scripted answers, including uncited ones |
+| `CitingModel` | Answers from source blocks, returning text with the ids of the sources it cites | Claude Sonnet with native citations | Scripted answers, including uncited ones |
 | `MapExtractor` | Reads a window of pages and returns peças and facts | Claude Haiku | Scripted peças and facts |
-| `Jobs` | Starts ingestion of a case file | Trigger.dev | Inline: runs plan, ranges and map in-process |
+| `Jobs` | Starts ingestion of a case file | Trigger.dev, with the case file id as the idempotency key, in both adapter modes (ADR-0009) | Inline: runs plan, ranges and map in-process. Recording: records the request only (the E2E server until ticket 05) |
 | `Mailer` | Sends a templated email | Resend | In-memory outbox |
+| Repositories (one per module) | Read and write the module's tables, including hybrid search | Drizzle on Postgres | In-memory tables |
+| `UnitOfWork` | Runs work in one transaction with repositories bound to it | Drizzle transaction | Copies the in-memory state and restores it if the work throws |
 
 Every port that calls an AI provider returns `usage` with its result, and the calling module passes it to Metering.
 
@@ -169,9 +192,8 @@ Every port that calls an AI provider returns `usage` with its result, and the ca
 
 | Dependency | Why it has no port | How tests handle it |
 | --- | --- | --- |
-| Postgres (Drizzle, pgvector, full-text) | Runs locally; a port would have one real adapter (ADR-0002) | PGlite with `@electric-sql/pglite-pgvector`; it includes the `portuguese` text-search config |
-| pdf.js, pdf-lib | In-process libraries | Fixture PDFs |
-| Better Auth | Used only in `apps/web`; modules receive a `LawyerId` | Tests pass a `LawyerId` |
+| pdf.js, pdf-lib | In-process libraries. Case files counts the pages of a stored PDF with pdf.js, which reads only the byte ranges it needs through `FileStore.read` | Fixture PDFs, made with pdf-lib in the tests |
+| Better Auth | Used only in `apps/web`; modules receive a `LawyerId`, which is the Better Auth user id | Module tests pass a `LawyerId`; `apps/web` tests sign in through Better Auth on PGlite |
 | Trigger.dev task definitions | They are the `Jobs` adapter, not domain code | The inline `Jobs` adapter |
 
 If the Phase 1 test needs a Python extractor, it becomes an internal seam inside Ingestion, not a port in the module's interface.
@@ -186,14 +208,24 @@ stateDiagram-v2
   queued --> processing: first range starts
   processing --> mapping: all ranges done
   mapping --> ready: document map built
+  queued --> failed: ingestion fails before the first range
   processing --> failed: a range fails after 3 retries
   mapping --> failed
+  uploading --> deleting: remove, aborts the multipart upload
   ready --> deleting: remove
   failed --> deleting: remove
   deleting --> [*]
 ```
 
 Questions are accepted only in `ready`. Any other state makes `ask` return `refused: "not-ready"`.
+
+The `CaseFile` entity in the Case files module owns this lifecycle (ADR-0007). Each arrow is one of its methods, and a method throws `InvalidStatus` for a move that the diagram does not show. No other code sets a status.
+
+`finishUpload` does its work in this order:
+
+1. Outside a run: close the multipart upload and count the pages of the stored PDF. These are external calls, and a rollback cannot undo them.
+2. In one run: lock the case file row, charge the pages (`Metering.chargePages` locks the lawyer's plan row), call `CaseFile.queue` and save it.
+3. After the commit: ask `Jobs` to start ingestion. If `Jobs` fails, the case file stays `queued`. A new `finishUpload` asks again, and Trigger.dev starts ingestion only once.
 
 ## Repository layout
 
@@ -210,7 +242,7 @@ packages/
     src/shared/        ids, value types and errors shared by the modules
     src/ports/         port types and their in-memory fakes
     src/db/            Drizzle schema, migrations, hybrid search SQL
-  adapters/            r2-s3, mistral-ocr, voyage, anthropic, resend, trigger-jobs
+  adapters/            r2-s3, voyage, anthropic, resend, trigger-jobs
   evals/               quality runs against real adapters; they cost money, so they run by hand
 ```
 
@@ -218,9 +250,10 @@ Dependencies point one way: `apps` import `core` and `adapters`; `adapters` impo
 
 ## Testing
 
-- **The interface is the test surface.** Each module is tested through its `index.ts` with local Postgres and the fake adapters. No tests reach into a module's internals.
+- **The interface is the test surface.** Each module is tested through its `index.ts` with in-memory repositories and the fake adapters. No tests reach into a module's internals.
+- **Repositories are tested on Postgres.** Each Drizzle repository has integration tests on PGlite, and a contract test that its fake passes too.
 - **One in-process end-to-end path.** With the inline `Jobs` adapter, a single test can upload a fixture PDF, run ingestion and ask a question without any network.
-- **Fixture PDFs:** a short digital file, a short scanned file and a two-column file.
+- **Fixture PDFs:** a short digital file, a short scanned file (its pages are marked as not read) and a two-column file.
 - **Answering's key tests:** a scripted model answer with one uncited statement must yield `dropped: 1`, and every citation must resolve to the page and boxes of its source block.
 - **Port contract tests** run against the fake on every pull request and against the real adapter nightly.
 - **Quality** (correct pages, document map accuracy) is measured in `packages/evals` with real adapters, not in unit tests.
@@ -229,7 +262,7 @@ Dependencies point one way: `apps` import `core` and `adapters`; `adapters` impo
 
 | PRD | Now | Why |
 | --- | --- | --- |
-| `SearchIndex`, database, `TextExtractor` and `Auth` listed as ports | Not ports | Each would have one real adapter, and each can be tested locally or lives only in the app |
+| `SearchIndex`, database, `TextExtractor` and `Auth` listed as ports | Not ports, except the database: each module has a repository port (ADR-0006) | `TextExtractor` and `Auth` would have one real adapter, or live only in the app; search is a method of Answering's repository |
 | One generic `LlmClient.complete(role, request)` | Two ports shaped by use: `CitingModel` and `MapExtractor` | A generic port makes every caller handle citations and output parsing; the narrow ports keep that inside the adapter |
 | Answers stream as text | Answers stream statement by statement | A statement can be shown only after its citations are known (ADR-0003) |
 | Quota checked when the upload starts | Checked at start with the browser's page count, and checked again at finish with the real count | The page count isn't known on the server until the upload ends |

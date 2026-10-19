@@ -4,13 +4,18 @@ import { defineConfig, globalIgnores } from "eslint/config";
 import tseslint from "typescript-eslint";
 
 const vendorSdks = {
-  group: ["@anthropic-ai/*", "@aws-sdk/*", "@mistralai/*", "voyageai", "@trigger.dev/*", "resend", "@consta/adapters"],
+  group: ["@anthropic-ai/*", "@aws-sdk/*", "voyageai", "@trigger.dev/*", "resend", "@consta/adapters"],
   message: "Core never imports vendor SDKs or adapters. Add a port in packages/core/src/ports instead (docs/architecture.md).",
 };
 
 const moduleInternals = {
   regex: "^\\.\\./(case-files|ingestion|answering|metering)/",
   message: "Import another module only through its index.ts (docs/architecture.md).",
+};
+
+const sqlOutsideRepositories = {
+  regex: "^drizzle-orm(/|$)|(^|/)db(/|$)",
+  message: "SQL lives only in repositories under src/db (ADR-0006). Use the UnitOfWork's repositories instead.",
 };
 
 export default defineConfig([
@@ -27,6 +32,14 @@ export default defineConfig([
     files: ["packages/core/src/**/*.ts"],
     rules: {
       "no-restricted-imports": ["error", { patterns: [vendorSdks, moduleInternals] }],
+    },
+  },
+  {
+    // Replaces the block above outside src/db and tests, so it repeats its patterns.
+    files: ["packages/core/src/**/*.ts"],
+    ignores: ["packages/core/src/db/**", "packages/core/src/**/*.test.ts"],
+    rules: {
+      "no-restricted-imports": ["error", { patterns: [vendorSdks, moduleInternals, sqlOutsideRepositories] }],
     },
   },
 ]);

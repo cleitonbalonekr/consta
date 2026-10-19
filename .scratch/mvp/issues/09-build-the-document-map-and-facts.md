@@ -8,6 +8,8 @@
 
 - [ ] `Ingestion.map` builds peças and facts from page windows, merging a peça that continues across windows, then marks the case file ready
 - [ ] The Claude map extractor adapter returns structured peças and facts, with a contract test; usage is metered
+- [ ] The extractor uses Claude Haiku 5.5, and each window of pages stays under 100,000 tokens: above that, its price goes up 5 times. If Haiku 5.5 fails the document map check, use Claude Sonnet 5.5 and record the result
+- [ ] `fact (case_file_id, page)` references `page (case_file_id, number)`; `peca` has `CHECK (first_page <= last_page)`
 - [ ] The real document map replaces the demo one in the UI
 - [ ] Unit tests cover window merging; integration tests cover the map step with the fake extractor
 - [ ] E2E covers seeing the document map after ingestion and opening a peça's first page
