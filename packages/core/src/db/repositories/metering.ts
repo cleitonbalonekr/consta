@@ -1,5 +1,6 @@
 import { and, eq, gte, sum } from "drizzle-orm";
 import type { LawyerPlan, MeteringRepository, QuotaCharge } from "../../metering";
+import type { Usage } from "../../ports";
 import type { CaseFileId, LawyerId } from "../../shared";
 import type { Db } from "../index";
 import * as schema from "../schema";
@@ -49,5 +50,15 @@ export class DrizzleMeteringRepository implements MeteringRepository {
       .insert(schema.quotaCharge)
       .values({ lawyerId: lawyer, caseFileId, pages })
       .onConflictDoNothing({ target: schema.quotaCharge.caseFileId });
+  }
+
+  async deleteCharge(caseFileId: CaseFileId) {
+    await this.db.delete(schema.quotaCharge).where(eq(schema.quotaCharge.caseFileId, caseFileId));
+  }
+
+  async insertUsage(lawyer: LawyerId, caseFileId: CaseFileId | null, usage: Usage[]) {
+    await this.db.insert(schema.usageEvent).values(
+      usage.map(({ costUsd, ...event }) => ({ ...event, lawyerId: lawyer, caseFileId, costUsd: String(costUsd) })),
+    );
   }
 }

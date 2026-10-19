@@ -14,5 +14,5 @@ status: accepted
 ## Consequences
 
 - A local run needs a Trigger.dev account with access to the project, `trigger login`, and the dev secret key (`tr_dev_...`) in `TRIGGER_SECRET_KEY` of the root `.env`. The web app does not start without this key. This replaces "no accounts or keys are necessary" in ADR-0008 for `pnpm dev`.
-- E2E and CI stay without accounts: the E2E server sets `CONSTA_JOBS=recording` (inline from ticket 05).
+- E2E and CI stay without accounts: the E2E server sets `CONSTA_JOBS=inline`, which runs ingestion inside the server with the inline `Jobs` adapter.
 - `pnpm dev` and `pnpm dev:jobs` read the `.env` at the repository root. Values already in the environment win.

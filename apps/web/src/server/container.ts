@@ -1,5 +1,5 @@
 import "server-only";
-import { CaseFiles, createAnswering, Metering } from "@consta/core";
+import { CaseFileLifecycle, CaseFiles, createAnswering, Ingestion, Metering } from "@consta/core";
 import type { Answering } from "@consta/core";
 import { createDb, DrizzleUnitOfWork } from "@consta/core/db";
 import { adaptersFromEnv, jobsFromEnv, usesFakeAdapters } from "@consta/adapters";
@@ -17,7 +17,8 @@ let built: Container | undefined;
 /**
  * Composition root for the web runtime: the modules on Postgres and S3 (Docker
  * Compose locally). With CONSTA_ADAPTERS=fake, the paid services are fakes;
- * ingestion still goes to Trigger.dev (`pnpm dev:jobs` locally).
+ * ingestion still goes to Trigger.dev (`pnpm dev:jobs` locally), except with
+ * CONSTA_JOBS=inline, where this process runs it (the E2E server).
  * Better Auth reads BETTER_AUTH_SECRET and BETTER_AUTH_URL itself.
  */
 export function container(): Container {
@@ -31,7 +32,11 @@ function buildContainer(): Container {
   const uow = new DrizzleUnitOfWork(db);
   const adapters = adaptersFromEnv(env);
   const metering = new Metering({ uow });
-  const jobs = jobsFromEnv(env);
+  let ingestion: Ingestion | undefined;
+  const jobs = jobsFromEnv(env, () => {
+    ingestion ??= new Ingestion({ uow, files: adapters.files, embedder: adapters.embedder, metering, lifecycle: new CaseFileLifecycle({ uow }) });
+    return (caseFileId) => ingestion!.ingestAll(caseFileId);
+  });
 
   return {
     caseFiles: new CaseFiles({ uow, files: adapters.files, jobs, metering }),

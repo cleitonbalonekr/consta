@@ -4,15 +4,16 @@ import {
   FakeEmbedder,
   FakeMapExtractor,
   FakeReranker,
+  InlineJobs,
   InMemoryMailer,
-  RecordingJobs,
 } from "@consta/core/fakes";
+import type { CaseFileId } from "@consta/core";
 import type { CitingModel, Embedder, FileStore, Jobs, Mailer, MapExtractor, Reranker } from "@consta/core/ports";
 import { createClaudeCitingModel, createClaudeMapExtractor } from "./anthropic";
 import { createResendMailer } from "./resend-mailer";
 import { S3FileStore } from "./s3-file-store";
 import { TriggerJobs } from "./trigger-jobs";
-import { createVoyageEmbedder, createVoyageReranker } from "./voyage";
+import { createVoyageReranker, VoyageEmbedder } from "./voyage";
 
 export type ExternalAdapters = {
   files: FileStore;
@@ -46,7 +47,7 @@ export function adaptersFromEnv(env: Env): ExternalAdapters {
   const voyage = { apiKey: required(env, "VOYAGE_API_KEY") };
   return {
     files: fileStoreFromEnv(env),
-    embedder: createVoyageEmbedder({ ...voyage, model: "voyage-4-lite", dimensions: EMBEDDING_DIMENSIONS }),
+    embedder: new VoyageEmbedder({ ...voyage, model: "voyage-4-lite", dimensions: EMBEDDING_DIMENSIONS }),
     reranker: createVoyageReranker({ ...voyage, model: "rerank-3-lite" }),
     model: createClaudeCitingModel({ ...anthropic, model: "claude-sonnet-5-5" }),
     extractor: createClaudeMapExtractor({ ...anthropic, model: "claude-haiku-5-5" }),
@@ -65,14 +66,20 @@ export function mailerFromEnv(env: Env): Mailer {
 
 /**
  * The Jobs adapter for the web app. Trigger.dev in both modes: locally, `pnpm dev:jobs`
- * runs the tasks on this machine for the Trigger.dev dev environment. CONSTA_JOBS=recording
- * only records the request, for the E2E server, which has no Trigger.dev key.
+ * runs the tasks on this machine for the Trigger.dev dev environment (ADR-0009).
+ * CONSTA_JOBS=inline runs ingestion in this process, for the E2E server, which has no
+ * Trigger.dev key; `ingestAll` is asked for only then, so only then is Ingestion built.
  */
-export function jobsFromEnv(env: Env): Jobs {
-  if (env.CONSTA_JOBS === "recording") return new RecordingJobs();
+export function jobsFromEnv(env: Env, ingestAll: () => (caseFileId: CaseFileId) => Promise<void>): Jobs {
+  if (env.CONSTA_JOBS === "inline") return new InlineJobs(ingestAll, logFailedIngestion);
   // The Trigger.dev SDK reads the key from process.env itself; this check fails at start instead of at the first upload.
   required(env, "TRIGGER_SECRET_KEY");
   return new TriggerJobs();
+}
+
+/** The case file is already marked failed; the log keeps only its id and the error's name (ADR-0005). */
+function logFailedIngestion(caseFileId: CaseFileId, error: unknown) {
+  console.error(`Ingestion of case file ${caseFileId} failed: ${error instanceof Error ? error.name : "unknown error"}.`);
 }
 
 /** The MinIO of docker-compose.yml, which fake mode uses when no S3 setting is given. */

@@ -1,23 +1,35 @@
-import { RecordingJobs } from "@consta/core/fakes";
+import { InlineJobs } from "@consta/core/fakes";
+import { CaseFileId } from "@consta/core";
 import { describe, expect, it } from "vitest";
 import { adaptersFromEnv, jobsFromEnv } from "./from-env";
 import { TriggerJobs } from "./trigger-jobs";
 
+const ingestAll = () => async () => {};
+
 describe("jobsFromEnv", () => {
   it("uses Trigger.dev with fake adapters", () => {
-    expect(jobsFromEnv({ CONSTA_ADAPTERS: "fake", TRIGGER_SECRET_KEY: "tr_dev_key" })).toBeInstanceOf(TriggerJobs);
+    expect(jobsFromEnv({ CONSTA_ADAPTERS: "fake", TRIGGER_SECRET_KEY: "tr_dev_key" }, ingestAll)).toBeInstanceOf(TriggerJobs);
   });
 
   it("uses Trigger.dev with real adapters", () => {
-    expect(jobsFromEnv({ CONSTA_ADAPTERS: "real", TRIGGER_SECRET_KEY: "tr_prod_key" })).toBeInstanceOf(TriggerJobs);
+    expect(jobsFromEnv({ CONSTA_ADAPTERS: "real", TRIGGER_SECRET_KEY: "tr_prod_key" }, ingestAll)).toBeInstanceOf(TriggerJobs);
   });
 
   it("needs the Trigger.dev key, also with fake adapters", () => {
-    expect(() => jobsFromEnv({ CONSTA_ADAPTERS: "fake" })).toThrow("Missing environment variable TRIGGER_SECRET_KEY.");
+    expect(() => jobsFromEnv({ CONSTA_ADAPTERS: "fake" }, ingestAll)).toThrow("Missing environment variable TRIGGER_SECRET_KEY.");
   });
 
-  it("only records the request with CONSTA_JOBS=recording, without a key", () => {
-    expect(jobsFromEnv({ CONSTA_ADAPTERS: "fake", CONSTA_JOBS: "recording" })).toBeInstanceOf(RecordingJobs);
+  it("runs ingestion in this process with CONSTA_JOBS=inline, without a key", async () => {
+    const started: string[] = [];
+    const jobs = jobsFromEnv({ CONSTA_ADAPTERS: "fake", CONSTA_JOBS: "inline" }, () => async (caseFileId) => {
+      started.push(caseFileId);
+    });
+
+    await jobs.startIngestion(CaseFileId("case-file-1"));
+    await (jobs as InlineJobs).idle();
+
+    expect(jobs).toBeInstanceOf(InlineJobs);
+    expect(started).toEqual(["case-file-1"]);
   });
 });
 

@@ -7,6 +7,7 @@ import { DeleteCaseFile } from "@/components/delete-case-file";
 import { IngestionProgress, isIngesting } from "@/components/ingestion-progress";
 import { RefreshWhileIngesting } from "@/components/refresh-while-ingesting";
 import { StatusBadge } from "@/components/status-badge";
+import { UnreadPages } from "@/components/unread-pages";
 import { formatNumber } from "@/lib/format";
 import { container } from "@/server/container";
 import { currentLawyer } from "@/server/lawyer";
@@ -41,9 +42,10 @@ export default async function CaseFilePage(props: PageProps<"/autos/[caseFileId]
           </h1>
           <p className="text-xs tabular-nums text-subtle">{formatNumber(caseFile.pageCount)} páginas</p>
         </div>
-        <StatusBadge status={caseFile.status} pagesDone={caseFile.pagesDone} pageCount={caseFile.pageCount} />
+        <StatusBadge id="case-file-status" status={caseFile.status} pagesDone={caseFile.pagesDone} pageCount={caseFile.pageCount} />
         <DeleteCaseFile caseFileId={caseFile.id} name={caseFile.name} returnToList />
       </div>
+      {ready && <UnreadPages ranges={caseFile.unreadPages} />}
       {ready ? (
         <CaseFileWorkspace caseFileId={caseFile.id} documentMap={caseFile.documentMap} pdfUrl={await caseFiles.readUrl(lawyer, caseFileId)} />
       ) : (

@@ -1,7 +1,9 @@
 import { sql } from "drizzle-orm";
 import {
   boolean,
+  check,
   customType,
+  foreignKey,
   date,
   halfvec,
   index,
@@ -10,6 +12,7 @@ import {
   numeric,
   pgEnum,
   pgTable,
+  primaryKey,
   real,
   text,
   timestamp,
@@ -132,6 +135,8 @@ export const caseFile = pgTable(
     status: caseFileStatus("status").notNull().default("uploading"),
     pagesDone: integer("pages_done").notNull().default(0),
     error: text("error"),
+    /** The scanned pages that ingestion did not read (ADR-0010), as ranges. Empty until the case file is ready. */
+    unreadPages: jsonb("unread_pages").$type<Array<{ first: number; last: number }>>().notNull().default([]),
     createdAt: createdAt(),
     readyAt: timestamp("ready_at", { withTimezone: true }),
   },
@@ -151,7 +156,10 @@ export const ingestionRange = pgTable(
     startedAt: timestamp("started_at", { withTimezone: true }),
     finishedAt: timestamp("finished_at", { withTimezone: true }),
   },
-  (t) => [uniqueIndex("ingestion_range_case_file_first_page_idx").on(t.caseFileId, t.firstPage)],
+  (t) => [
+    uniqueIndex("ingestion_range_case_file_first_page_idx").on(t.caseFileId, t.firstPage),
+    check("ingestion_range_pages_check", sql`${t.firstPage} <= ${t.lastPage}`),
+  ],
 );
 
 export const page = pgTable(
@@ -166,7 +174,7 @@ export const page = pgTable(
     blocks: jsonb("blocks").$type<Array<{ text: string; box: Box }>>().notNull(),
     ocrConfidence: real("ocr_confidence"),
   },
-  (t) => [uniqueIndex("page_case_file_number_idx").on(t.caseFileId, t.number)],
+  (t) => [primaryKey({ columns: [t.caseFileId, t.number] })],
 );
 
 /** The unit of search. A passage never crosses a page break. */
@@ -186,6 +194,8 @@ export const passage = pgTable(
     blockIndexes: integer("block_indexes").array().notNull(),
   },
   (t) => [
+    // A retried range deletes its pages, and their passages go with them.
+    foreignKey({ columns: [t.caseFileId, t.page], foreignColumns: [page.caseFileId, page.number] }).onDelete("cascade"),
     index("passage_case_file_page_idx").on(t.caseFileId, t.page),
     index("passage_tsv_idx").using("gin", t.tsv),
     index("passage_embedding_idx").using("hnsw", t.embedding.op("halfvec_cosine_ops")),

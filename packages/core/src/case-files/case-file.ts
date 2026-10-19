@@ -16,9 +16,14 @@ export type CaseFileProps = {
   pagesDone: number;
   /** Why ingestion failed, in words the lawyer can read. */
   error: string | null;
+  /** The scanned pages that ingestion did not read (ADR-0010). Empty until ready. */
+  unreadPages: UnreadPages;
   createdAt: Date;
   readyAt: Date | null;
 };
+
+/** Ranges of page numbers, in order. Plain objects, so the repositories store them as they are. */
+export type UnreadPages = Array<{ first: number; last: number }>;
 
 /** The case file lifecycle in docs/architecture.md: the only moves a status can make. */
 const NEXT_STATUSES: Record<CaseFileStatus, readonly CaseFileStatus[]> = {
@@ -57,6 +62,7 @@ export class CaseFile {
       status: "uploading",
       pagesDone: 0,
       error: null,
+      unreadPages: [],
       readyAt: null,
     });
   }
@@ -98,13 +104,24 @@ export class CaseFile {
     this.moveTo("processing");
   }
 
-  startMapping() {
-    this.moveTo("mapping");
+  /**
+   * Ranges run in parallel and a retried range reads its pages again, so the count
+   * only goes up, and never past the page count. Throws InvalidStatus unless processing.
+   */
+  recordPagesRead(pages: number) {
+    if (this.props.status !== "processing") throw new InvalidStatus(`Case file ${this.id} is not processing.`);
+    this.props.pagesDone = Math.min(this.props.pageCount, Math.max(this.props.pagesDone, pages));
   }
 
-  markReady(at: Date) {
+  startMapping() {
+    this.moveTo("mapping");
+    this.props.pagesDone = this.props.pageCount;
+  }
+
+  markReady(at: Date, unreadPages: UnreadPages) {
     this.moveTo("ready");
     this.props.readyAt = at;
+    this.props.unreadPages = unreadPages.map(({ first, last }) => ({ first, last }));
   }
 
   fail(reason: string) {

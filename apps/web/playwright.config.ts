@@ -5,7 +5,7 @@ const PORT = 3100;
 
 /**
  * Journeys run against a production build (`next build && next start`) with fake
- * adapters for the paid services and recorded Jobs: no keys. Postgres and MinIO come from Docker
+ * adapters for the paid services and inline Jobs: no keys. Postgres and MinIO come from Docker
  * Compose (`docker compose up -d` first). Each journey signs in as a new lawyer
  * (see e2e/support/fixtures.ts).
  */
@@ -32,8 +32,8 @@ export default defineConfig({
     // The local services of docker-compose.yml, as in .env.example.
     env: {
       CONSTA_ADAPTERS: "fake",
-      // No Trigger.dev key here: the server records the request to start ingestion.
-      CONSTA_JOBS: "recording",
+      // No Trigger.dev key here: the server runs ingestion in its own process.
+      CONSTA_JOBS: "inline",
       DATABASE_URL: "postgres://consta:consta@localhost:5432/consta",
       S3_ENDPOINT: "http://localhost:9000",
       S3_REGION: "us-east-1",

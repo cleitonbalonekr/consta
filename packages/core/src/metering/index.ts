@@ -1,5 +1,5 @@
 import type { UnitOfWork, Usage } from "../ports";
-import { NotImplemented, QuotaExceeded } from "../shared";
+import { QuotaExceeded } from "../shared";
 import type { CaseFileId, LawyerId, Plan } from "../shared";
 
 /** Metering's tables, behind a port so Metering holds no SQL (ADR-0006). */
@@ -18,6 +18,10 @@ export interface MeteringRepository {
   isCharged(caseFileId: CaseFileId): Promise<boolean>;
   /** Stores a charge. A second charge for the same case file is ignored. */
   insertCharge(charge: QuotaCharge): Promise<void>;
+  /** Removes the case file's charge, if there is one. */
+  deleteCharge(caseFileId: CaseFileId): Promise<void>;
+  /** Stores one row per provider call. */
+  insertUsage(lawyer: LawyerId, caseFileId: CaseFileId | null, usage: Usage[]): Promise<void>;
 }
 
 export type LawyerPlan = { plan: Plan; pageQuota: number };
@@ -39,8 +43,10 @@ export class Metering {
     this.now = now;
   }
 
-  async record(_lawyer: LawyerId, _caseFileId: CaseFileId | null, _usage: Usage[]): Promise<void> {
-    throw new NotImplemented("Metering.record");
+  /** Stores what paid provider calls cost. Call it after each call, outside the run that saves the result, so a rollback can't lose it. */
+  async record(lawyer: LawyerId, caseFileId: CaseFileId | null, usage: Usage[]): Promise<void> {
+    if (usage.length === 0) return;
+    await this.uow.run((repos) => repos.metering.insertUsage(lawyer, caseFileId, usage));
   }
 
   /**
@@ -72,6 +78,11 @@ export class Metering {
       if (pages > pagesLeft) throw new QuotaExceeded(pages, pagesLeft);
       await metering.insertCharge({ lawyer, caseFileId, pages });
     });
+  }
+
+  /** A case file whose ingestion failed gives its pages back. Idempotent. */
+  async givePagesBack(caseFileId: CaseFileId): Promise<void> {
+    await this.uow.run((repos) => repos.metering.deleteCharge(caseFileId));
   }
 
   private async left(metering: MeteringRepository, lawyer: LawyerId, plan: LawyerPlan | null) {

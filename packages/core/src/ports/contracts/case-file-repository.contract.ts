@@ -61,6 +61,38 @@ export function caseFileRepositoryContract(setup: CaseFileRepositorySetup) {
       }
     });
 
+    it("finds a case file by id alone, for any lawyer, with a lock or without one", async () => {
+      const { uow, newLawyer } = await setup();
+      const caseFile = newCaseFile(await newLawyer());
+      await uow.run((repos) => repos.caseFiles.save(caseFile));
+
+      expect((await uow.run((repos) => repos.caseFiles.findById(caseFile.id)))?.snapshot()).toEqual(caseFile.snapshot());
+      expect((await uow.run((repos) => repos.caseFiles.findById(caseFile.id, { lock: true })))?.id).toBe(caseFile.id);
+      expect(await uow.run((repos) => repos.caseFiles.findById(CaseFileId(crypto.randomUUID())))).toBeNull();
+      expect(await uow.run((repos) => repos.caseFiles.findById(CaseFileId("autos-de-exemplo")))).toBeNull();
+    });
+
+    it("keeps the progress and the unread pages of a ready case file", async () => {
+      const { uow, newLawyer } = await setup();
+      const lawyer = await newLawyer();
+      const caseFile = newCaseFile(lawyer);
+      caseFile.queue({ size: FileSize.from(2_048), pages: PageCount.from(10) });
+      caseFile.startProcessing();
+      caseFile.recordPagesRead(10);
+      caseFile.startMapping();
+      caseFile.markReady(new Date("2026-10-10T13:00:00Z"), [{ first: 2, last: 3 }, { first: 7, last: 7 }]);
+
+      await uow.run((repos) => repos.caseFiles.save(caseFile));
+
+      const found = await uow.run((repos) => repos.caseFiles.find(lawyer, caseFile.id));
+      expect(found?.snapshot()).toMatchObject({
+        status: "ready",
+        pagesDone: 10,
+        readyAt: new Date("2026-10-10T13:00:00Z"),
+        unreadPages: [{ first: 2, last: 3 }, { first: 7, last: 7 }],
+      });
+    });
+
     it("lists only the lawyer's case files, newest first", async () => {
       const { uow, newLawyer } = await setup();
       const [lawyer, other] = [await newLawyer(), await newLawyer()];

@@ -34,7 +34,7 @@ const eslintConfig = defineConfig([
           paths: [
             {
               name: "@consta/core",
-              importNames: ["CaseFiles", "Metering", "createAnswering", "createIngestion", "ingestInline"],
+              importNames: ["CaseFiles", "CaseFileLifecycle", "Metering", "createAnswering", "Ingestion"],
               allowTypeImports: true,
               message: "Use container() from @/server/container; only the composition root builds modules.",
             },

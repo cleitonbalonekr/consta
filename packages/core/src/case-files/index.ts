@@ -3,11 +3,14 @@ import type { FileStore, Jobs, UnitOfWork, UploadedPart } from "../ports";
 import { CaseFileId, NotFound, NotImplemented, QuotaExceeded } from "../shared";
 import type { CaseFileStatus, LawyerId, PecaId, PecaType } from "../shared";
 import { CaseFile } from "./case-file";
+import type { UnreadPages } from "./case-file";
 import { PdfPageCounter } from "./pdf-page-counter";
 import { FileSize, PageCount } from "./values";
 
 export { CaseFile } from "./case-file";
-export type { CaseFileProps } from "./case-file";
+export type { CaseFileProps, UnreadPages } from "./case-file";
+export { CaseFileLifecycle } from "./lifecycle";
+export type { IngestionTarget } from "./lifecycle";
 export { FileSize, MAX_BYTES, MAX_PAGES, PageCount } from "./values";
 
 export type PecaView = {
@@ -31,6 +34,8 @@ export type CaseFileSummary = {
 
 export type CaseFileView = CaseFileSummary & {
   error: string | null;
+  /** The scanned pages that were not read, so no answer can cite them (ADR-0010). */
+  unreadPages: UnreadPages;
   /** Empty until the case file is ready. */
   documentMap: PecaView[];
 };
@@ -42,6 +47,8 @@ export interface CaseFileRepository {
    * With `lock`, its row stays locked until the run ends, so two runs change it one after the other.
    */
   find(lawyer: LawyerId, id: CaseFileId, options?: { lock: boolean }): Promise<CaseFile | null>;
+  /** Like find, for any lawyer's case file. Only CaseFileLifecycle uses it, for the task runtime. */
+  findById(id: CaseFileId, options?: { lock: boolean }): Promise<CaseFile | null>;
   /** The lawyer's case files, newest first. */
   listOf(lawyer: LawyerId): Promise<CaseFile[]>;
   /** Inserts a new case file or updates the stored one. */
@@ -51,6 +58,8 @@ export interface CaseFileRepository {
 export type CaseFilesDeps = { uow: UnitOfWork; files: FileStore; jobs: Jobs; metering: Metering; now?: () => Date };
 
 const PDF = "application/pdf";
+
+const READ_URL_SECONDS = 60 * 60;
 
 /** S3 numbers the parts of a multipart upload from 1 to 10,000. */
 const MAX_PART_NUMBER = 10_000;
@@ -137,9 +146,10 @@ export class CaseFiles {
     return caseFiles.map(toSummary);
   }
 
-  /** A signed URL the viewer reads with HTTP range requests. */
-  async readUrl(_lawyer: LawyerId, _caseFileId: CaseFileId): Promise<string> {
-    throw new NotImplemented("CaseFiles.readUrl");
+  /** A signed URL the viewer reads with HTTP range requests. Valid for one hour. */
+  async readUrl(lawyer: LawyerId, caseFileId: CaseFileId): Promise<string> {
+    const { storageKey } = (await this.owned(lawyer, caseFileId)).snapshot();
+    return this.files.readUrl(storageKey, READ_URL_SECONDS);
   }
 
   /** Deletes everything derived from the case file, then the PDF. Usage rows stay. */
@@ -178,5 +188,6 @@ function toSummary(caseFile: CaseFile): CaseFileSummary {
 
 /** The document map arrives with ticket 09; until then it is empty. */
 function toView(caseFile: CaseFile): CaseFileView {
-  return { ...toSummary(caseFile), error: caseFile.snapshot().error, documentMap: [] };
+  const { error, unreadPages } = caseFile.snapshot();
+  return { ...toSummary(caseFile), error, unreadPages, documentMap: [] };
 }

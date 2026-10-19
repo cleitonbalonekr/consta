@@ -10,7 +10,7 @@ const moves = {
   queue: { to: "queued", run: (caseFile: CaseFile) => caseFile.queue(stored) },
   startProcessing: { to: "processing", run: (caseFile: CaseFile) => caseFile.startProcessing() },
   startMapping: { to: "mapping", run: (caseFile: CaseFile) => caseFile.startMapping() },
-  markReady: { to: "ready", run: (caseFile: CaseFile) => caseFile.markReady(new Date("2026-10-10T13:00:00Z")) },
+  markReady: { to: "ready", run: (caseFile: CaseFile) => caseFile.markReady(new Date("2026-10-10T13:00:00Z"), []) },
   fail: { to: "failed", run: (caseFile: CaseFile) => caseFile.fail("A página 5 não pôde ser lida.") },
   startDeleting: { to: "deleting", run: (caseFile: CaseFile) => caseFile.startDeleting() },
 } satisfies Record<string, { to: CaseFileStatus; run: (caseFile: CaseFile) => void }>;
@@ -79,15 +79,39 @@ describe("CaseFile", () => {
     expect(() => caseFile.openUpload()).toThrow(InvalidStatus);
   });
 
-  it("keeps the reason of a failure and the moment it became ready", () => {
+  it("keeps the reason of a failure, and the moment it became ready with the pages it did not read", () => {
     const failed = caseFileIn("processing");
     const ready = caseFileIn("mapping");
 
     failed.fail("A página 5 não pôde ser lida.");
-    ready.markReady(new Date("2026-10-10T13:00:00Z"));
+    ready.markReady(new Date("2026-10-10T13:00:00Z"), [{ first: 3, last: 4 }]);
 
     expect(failed.snapshot().error).toBe("A página 5 não pôde ser lida.");
-    expect(ready.snapshot().readyAt).toEqual(new Date("2026-10-10T13:00:00Z"));
+    expect(ready.snapshot()).toMatchObject({ readyAt: new Date("2026-10-10T13:00:00Z"), unreadPages: [{ first: 3, last: 4 }] });
+  });
+
+  it("counts pages read only up, and never past the page count", () => {
+    const caseFile = caseFileIn("processing");
+
+    caseFile.recordPagesRead(6);
+    caseFile.recordPagesRead(4);
+    expect(caseFile.snapshot().pagesDone).toBe(6);
+
+    caseFile.recordPagesRead(11);
+    expect(caseFile.snapshot().pagesDone).toBe(10);
+  });
+
+  it("counts pages read only while processing", () => {
+    expect(() => caseFileIn("queued").recordPagesRead(1)).toThrow(InvalidStatus);
+    expect(() => caseFileIn("mapping").recordPagesRead(1)).toThrow(InvalidStatus);
+  });
+
+  it("counts every page as read when mapping starts", () => {
+    const caseFile = caseFileIn("processing");
+
+    caseFile.startMapping();
+
+    expect(caseFile.snapshot().pagesDone).toBe(10);
   });
 
   it("gives a copy of its fields, which can't change its status", () => {

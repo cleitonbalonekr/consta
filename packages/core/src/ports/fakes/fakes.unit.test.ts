@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fileStoreContract } from "../contracts";
+import { embedderContract, fileStoreContract } from "../contracts";
 import { FakeCitingModel, FakeEmbedder, InMemoryFileStore, InMemoryMailer } from "./index";
 
 describe("InMemoryFileStore", () => {
@@ -10,6 +10,8 @@ describe("InMemoryFileStore", () => {
 });
 
 describe("FakeEmbedder", () => {
+  embedderContract(async () => ({ embedder: new FakeEmbedder() }));
+
   it("places texts that share words closer than texts that don't", async () => {
     const { vectors } = await new FakeEmbedder(64).embed(
       ["sentença de mérito", "a sentença foi publicada", "laudo pericial contábil"],
