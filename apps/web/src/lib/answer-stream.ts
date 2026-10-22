@@ -22,6 +22,20 @@ export function encodeAnswerEvents(events: AsyncIterable<AnswerEvent>): Readable
   });
 }
 
+/**
+ * Yields an event already read, then the rest. Returns `rest` when the consumer stops early,
+ * so a lawyer who leaves mid-answer stops the model call.
+ */
+export async function* prepend<T>(first: IteratorResult<T>, rest: AsyncIterator<T>): AsyncIterable<T> {
+  try {
+    if (first.done) return;
+    yield first.value;
+    for (let next = await rest.next(); !next.done; next = await rest.next()) yield next.value;
+  } finally {
+    await rest.return?.();
+  }
+}
+
 /** Reads the events of an answer stream, one line at a time, however the network chunks it. */
 export async function* decodeAnswerEvents(stream: ReadableStream<Uint8Array>): AsyncIterable<AnswerEvent> {
   const reader = stream.getReader();

@@ -11,8 +11,8 @@ async function queuedCaseFile() {
   await metering.startTrial(lawyer);
   const caseFileId = await upload(lawyer, await pdfWithPages(4), 4);
   await caseFiles.finishUpload(lawyer, caseFileId);
-  const lifecycle = new CaseFileLifecycle({ uow, now: () => new Date("2026-10-17T12:00:00Z") });
-  return { caseFiles, lifecycle, lawyer, caseFileId };
+  const lifecycle = new CaseFileLifecycle({ uow, metering, now: () => new Date("2026-10-17T12:00:00Z") });
+  return { caseFiles, metering, lifecycle, lawyer, caseFileId };
 }
 
 describe("CaseFileLifecycle", () => {
@@ -39,18 +39,52 @@ describe("CaseFileLifecycle", () => {
     await twice(() => lifecycle.startProcessing(caseFileId));
     await twice(() => lifecycle.recordPagesRead(caseFileId, 2));
     await twice(() => lifecycle.startMapping(caseFileId));
-    await twice(() => lifecycle.markReady(caseFileId, [{ first: 3, last: 3 }]));
+    await twice(() => lifecycle.markReady(caseFileId, [1, 3, 4]));
 
-    expect(await caseFiles.view(lawyer, caseFileId)).toMatchObject({ status: "ready", pagesDone: 4, unreadPages: [{ first: 3, last: 3 }] });
+    expect(await caseFiles.view(lawyer, caseFileId)).toMatchObject({
+      status: "ready",
+      ingesting: false,
+      pagesDone: 4,
+      unreadPages: [
+        { first: 1, last: 1 },
+        { first: 3, last: 4 },
+      ],
+    });
   });
 
-  it("keeps the first reason when a case file fails twice", async () => {
+  it("does nothing for a step the case file is already past, as a late retry would", async () => {
     const { caseFiles, lifecycle, lawyer, caseFileId } = await queuedCaseFile();
+    await lifecycle.startProcessing(caseFileId);
+    await lifecycle.startMapping(caseFileId);
+
+    await lifecycle.startProcessing(caseFileId);
+    await lifecycle.recordPagesRead(caseFileId, 1);
+
+    expect(await caseFiles.view(lawyer, caseFileId)).toMatchObject({ status: "mapping", ingesting: true, pagesDone: 4 });
+  });
+
+  it("gives the pages back when it fails, and keeps the first reason when it fails twice", async () => {
+    const { caseFiles, metering, lifecycle, lawyer, caseFileId } = await queuedCaseFile();
+    const charged = await metering.pagesLeft(lawyer);
 
     await lifecycle.fail(caseFileId, "Não conseguimos ler a página 2.");
     await lifecycle.fail(caseFileId, "Outro motivo.");
 
-    expect(await caseFiles.view(lawyer, caseFileId)).toMatchObject({ status: "failed", error: "Não conseguimos ler a página 2." });
+    expect(await caseFiles.view(lawyer, caseFileId)).toMatchObject({ status: "failed", ingesting: false, error: "Não conseguimos ler a página 2." });
+    expect(await metering.pagesLeft(lawyer)).toBe(charged + 4);
+  });
+
+  it("does not fail a ready case file, and keeps its pages charged", async () => {
+    const { caseFiles, metering, lifecycle, lawyer, caseFileId } = await queuedCaseFile();
+    await lifecycle.startProcessing(caseFileId);
+    await lifecycle.startMapping(caseFileId);
+    await lifecycle.markReady(caseFileId, []);
+    const charged = await metering.pagesLeft(lawyer);
+
+    await lifecycle.fail(caseFileId, "Não conseguimos ler este arquivo.");
+
+    expect((await caseFiles.view(lawyer, caseFileId)).status).toBe("ready");
+    expect(await metering.pagesLeft(lawyer)).toBe(charged);
   });
 
   it("refuses a move the lifecycle does not show, and an unknown case file", async () => {

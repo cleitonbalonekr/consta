@@ -4,7 +4,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { CaseFileWorkspace } from "@/components/case-file-workspace";
 import { DeleteCaseFile } from "@/components/delete-case-file";
-import { IngestionProgress, isIngesting } from "@/components/ingestion-progress";
+import { IngestionProgress } from "@/components/ingestion-progress";
 import { RefreshWhileIngesting } from "@/components/refresh-while-ingesting";
 import { StatusBadge } from "@/components/status-badge";
 import { UnreadPages } from "@/components/unread-pages";
@@ -50,7 +50,7 @@ export default async function CaseFilePage(props: PageProps<"/autos/[caseFileId]
         <CaseFileWorkspace caseFileId={caseFile.id} documentMap={caseFile.documentMap} pdfUrl={await caseFiles.readUrl(lawyer, caseFileId)} />
       ) : (
         <main className="mx-auto w-full max-w-lg px-4 py-12">
-          <RefreshWhileIngesting active={isIngesting(caseFile.status)} />
+          <RefreshWhileIngesting active={caseFile.ingesting} />
           <IngestionProgress status={caseFile.status} pagesDone={caseFile.pagesDone} pageCount={caseFile.pageCount} error={caseFile.error} />
         </main>
       )}

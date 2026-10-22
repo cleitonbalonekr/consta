@@ -1,86 +1,17 @@
 import { EMBEDDING_DIMENSIONS } from "@consta/core/db";
-import {
-  FakeCitingModel,
-  FakeEmbedder,
-  FakeMapExtractor,
-  FakeReranker,
-  InlineJobs,
-  InMemoryMailer,
-} from "@consta/core/fakes";
+import { FakeCitingModel, FakeEmbedder, FakeReranker, InlineJobs, InMemoryMailer } from "@consta/core/fakes";
 import type { CaseFileId } from "@consta/core";
-import type { CitingModel, Embedder, FileStore, Jobs, Mailer, MapExtractor, Reranker } from "@consta/core/ports";
-import { createClaudeCitingModel, createClaudeMapExtractor } from "./anthropic";
+import type { CitingModel, Embedder, FileStore, Jobs, Mailer, Reranker } from "@consta/core/ports";
+import { ClaudeCitingModel } from "./anthropic";
 import { createResendMailer } from "./resend-mailer";
 import { S3FileStore } from "./s3-file-store";
 import { TriggerJobs } from "./trigger-jobs";
-import { createVoyageReranker, VoyageEmbedder } from "./voyage";
-
-export type ExternalAdapters = {
-  files: FileStore;
-  embedder: Embedder;
-  reranker: Reranker;
-  model: CitingModel;
-  extractor: MapExtractor;
-  mailer: Mailer;
-};
+import { VoyageEmbedder, VoyageReranker } from "./voyage";
 
 type Env = Record<string, string | undefined>;
 
-/**
- * Picks the adapters for every external port. `CONSTA_ADAPTERS=fake` (the default)
- * uses in-memory fakes for the paid services and needs no keys. Object storage is
- * always S3, because the browser uploads to it directly: in fake mode, the MinIO of
- * docker-compose.yml unless S3_* settings say otherwise.
- */
-export function adaptersFromEnv(env: Env): ExternalAdapters {
-  if (usesFakeAdapters(env)) {
-    return {
-      files: fileStoreFromEnv(env),
-      embedder: new FakeEmbedder(EMBEDDING_DIMENSIONS),
-      reranker: new FakeReranker(),
-      model: new FakeCitingModel(),
-      extractor: new FakeMapExtractor(),
-      mailer: mailerFromEnv(env),
-    };
-  }
-  const anthropic = { apiKey: required(env, "ANTHROPIC_API_KEY") };
-  const voyage = { apiKey: required(env, "VOYAGE_API_KEY") };
-  return {
-    files: fileStoreFromEnv(env),
-    embedder: new VoyageEmbedder({ ...voyage, model: "voyage-4-lite", dimensions: EMBEDDING_DIMENSIONS }),
-    reranker: createVoyageReranker({ ...voyage, model: "rerank-3-lite" }),
-    model: createClaudeCitingModel({ ...anthropic, model: "claude-sonnet-5-5" }),
-    extractor: createClaudeMapExtractor({ ...anthropic, model: "claude-haiku-5-5" }),
-    mailer: mailerFromEnv(env),
-  };
-}
-
-/**
- * The mailer alone, for the web app's sign-in emails. With fakes, sign-in links
- * go to the server console instead of an inbox.
- */
-export function mailerFromEnv(env: Env): Mailer {
-  if (usesFakeAdapters(env)) return new InMemoryMailer(console.info);
-  return createResendMailer({ apiKey: required(env, "RESEND_API_KEY"), from: env.EMAIL_FROM ?? "Consta <noreply@consta.app>" });
-}
-
-/**
- * The Jobs adapter for the web app. Trigger.dev in both modes: locally, `pnpm dev:jobs`
- * runs the tasks on this machine for the Trigger.dev dev environment (ADR-0009).
- * CONSTA_JOBS=inline runs ingestion in this process, for the E2E server, which has no
- * Trigger.dev key; `ingestAll` is asked for only then, so only then is Ingestion built.
- */
-export function jobsFromEnv(env: Env, ingestAll: () => (caseFileId: CaseFileId) => Promise<void>): Jobs {
-  if (env.CONSTA_JOBS === "inline") return new InlineJobs(ingestAll, logFailedIngestion);
-  // The Trigger.dev SDK reads the key from process.env itself; this check fails at start instead of at the first upload.
-  required(env, "TRIGGER_SECRET_KEY");
-  return new TriggerJobs();
-}
-
-/** The case file is already marked failed; the log keeps only its id and the error's name (ADR-0005). */
-function logFailedIngestion(caseFileId: CaseFileId, error: unknown) {
-  console.error(`Ingestion of case file ${caseFileId} failed: ${error instanceof Error ? error.name : "unknown error"}.`);
-}
+/** The Postgres of docker-compose.yml, which fake mode uses when DATABASE_URL is not set. */
+const LOCAL_DATABASE_URL = "postgres://consta:consta@localhost:5432/consta";
 
 /** The MinIO of docker-compose.yml, which fake mode uses when no S3 setting is given. */
 const LOCAL_MINIO = {
@@ -91,24 +22,92 @@ const LOCAL_MINIO = {
   S3_SECRET_ACCESS_KEY: "consta-secret",
 };
 
-function fileStoreFromEnv(env: Env): FileStore {
-  const setting = (name: keyof typeof LOCAL_MINIO) => env[name] || (usesFakeAdapters(env) ? LOCAL_MINIO[name] : required(env, name));
-  return new S3FileStore({
-    endpoint: setting("S3_ENDPOINT"),
-    region: env.S3_REGION || (usesFakeAdapters(env) ? LOCAL_MINIO.S3_REGION : "auto"),
-    bucket: setting("S3_BUCKET"),
-    accessKeyId: setting("S3_ACCESS_KEY_ID"),
-    secretAccessKey: setting("S3_SECRET_ACCESS_KEY"),
-  });
-}
+/**
+ * The adapters for every external port, picked from the environment. Each is built the
+ * first time a runtime asks for it, so a runtime needs the settings of only the ports it
+ * uses, and a missing one throws when it is asked for.
+ *
+ * `CONSTA_ADAPTERS=fake` (the default) uses in-memory fakes for the paid services and
+ * needs no keys, and the Postgres and MinIO of docker-compose.yml unless DATABASE_URL and
+ * S3_* say otherwise. Object storage is always S3, because the browser uploads to it directly.
+ */
+export class AdaptersFromEnv {
+  private readonly built = new Map<string, unknown>();
 
-/** `CONSTA_ADAPTERS=fake`, the default. */
-export function usesFakeAdapters(env: Env) {
-  return (env.CONSTA_ADAPTERS ?? "fake") === "fake";
-}
+  constructor(private readonly env: Env) {}
 
-function required(env: Env, name: string) {
-  const value = env[name];
-  if (!value) throw new Error(`Missing environment variable ${name}.`);
-  return value;
+  /** `CONSTA_ADAPTERS=fake`, the default. */
+  get fake(): boolean {
+    return (this.env.CONSTA_ADAPTERS ?? "fake") === "fake";
+  }
+
+  get databaseUrl(): string {
+    return this.env.DATABASE_URL || (this.fake ? LOCAL_DATABASE_URL : this.required("DATABASE_URL"));
+  }
+
+  get files(): FileStore {
+    return this.once("files", () => {
+      const setting = (name: keyof typeof LOCAL_MINIO) => this.env[name] || (this.fake ? LOCAL_MINIO[name] : this.required(name));
+      return new S3FileStore({
+        endpoint: setting("S3_ENDPOINT"),
+        region: this.env.S3_REGION || (this.fake ? LOCAL_MINIO.S3_REGION : "auto"),
+        bucket: setting("S3_BUCKET"),
+        accessKeyId: setting("S3_ACCESS_KEY_ID"),
+        secretAccessKey: setting("S3_SECRET_ACCESS_KEY"),
+      });
+    });
+  }
+
+  get embedder(): Embedder {
+    return this.once("embedder", () =>
+      this.fake ? new FakeEmbedder(EMBEDDING_DIMENSIONS) : new VoyageEmbedder({ apiKey: this.required("VOYAGE_API_KEY"), model: "voyage-4-lite", dimensions: EMBEDDING_DIMENSIONS }),
+    );
+  }
+
+  get reranker(): Reranker {
+    return this.once("reranker", () => (this.fake ? new FakeReranker() : new VoyageReranker({ apiKey: this.required("VOYAGE_API_KEY"), model: "rerank-3-lite" })));
+  }
+
+  get model(): CitingModel {
+    return this.once("model", () => (this.fake ? new FakeCitingModel() : new ClaudeCitingModel({ apiKey: this.required("ANTHROPIC_API_KEY"), model: "claude-sonnet-5-5" })));
+  }
+
+  /** With fakes, sign-in links go to the server console instead of an inbox. */
+  get mailer(): Mailer {
+    return this.once("mailer", () =>
+      this.fake
+        ? new InMemoryMailer(console.info)
+        : createResendMailer({ apiKey: this.required("RESEND_API_KEY"), from: this.env.EMAIL_FROM ?? "Consta <noreply@consta.app>" }),
+    );
+  }
+
+  /**
+   * The Jobs adapter for the web app. Trigger.dev in both modes: locally, `pnpm dev:jobs`
+   * runs the tasks on this machine for the Trigger.dev dev environment (ADR-0009).
+   * CONSTA_JOBS=inline runs ingestion in this process, for the E2E server, which has no
+   * Trigger.dev key; `ingest` is asked for only then, so only then is Ingestion built.
+   */
+  jobs(ingest: () => (caseFileId: CaseFileId) => Promise<void>): Jobs {
+    if (this.env.CONSTA_JOBS === "inline") return new InlineJobs(ingest, (caseFileId, error) => this.logFailedIngestion(caseFileId, error));
+    // The Trigger.dev SDK reads the key from process.env itself; this check fails at start instead of at the first upload.
+    this.required("TRIGGER_SECRET_KEY");
+    return new TriggerJobs();
+  }
+
+  /** The case file is already marked failed; the log keeps only its id and the error's name (ADR-0005). */
+  private logFailedIngestion(caseFileId: CaseFileId, error: unknown) {
+    console.error(`Ingestion of case file ${caseFileId} failed: ${error instanceof Error ? error.name : "unknown error"}.`);
+  }
+
+  private once<T>(port: string, build: () => T): T {
+    if (!this.built.has(port)) this.built.set(port, build());
+    // `port` names one getter, which always stores the same type.
+    return this.built.get(port) as T;
+  }
+
+  private required(name: string): string {
+    const value = this.env[name];
+    if (!value) throw new Error(`Missing environment variable ${name}.`);
+    return value;
+  }
 }

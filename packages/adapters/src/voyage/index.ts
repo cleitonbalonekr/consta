@@ -1,15 +1,17 @@
-import { NotImplemented } from "@consta/core";
 import type { Embedder, Reranker, Usage } from "@consta/core/ports";
 
 export type VoyageConfig = { apiKey: string };
 
 const VOYAGE_EMBEDDINGS_URL = "https://api.voyageai.com/v1/embeddings";
+const VOYAGE_RERANK_URL = "https://api.voyageai.com/v1/rerank";
 
 /** Voyage takes up to 1,000 texts per request; smaller batches stay far from its token limit too. */
 const TEXTS_PER_REQUEST = 128;
 
 /** List prices in USD per million tokens (prd-mvp.md). The free first 200M tokens are not subtracted. */
-const USD_PER_MILLION_TOKENS: Record<string, number> = { "voyage-4-lite": 0.02 };
+const USD_PER_MILLION_TOKENS: Record<string, number> = { "voyage-4-lite": 0.02, "rerank-3-lite": 0.02 };
+
+type RerankResponse = { data: { index: number; relevance_score: number }[]; usage: { total_tokens: number } };
 
 type EmbeddingsResponse = { data: { embedding: number[]; index: number }[]; usage: { total_tokens: number } };
 
@@ -60,11 +62,31 @@ export class VoyageEmbedder implements Embedder {
   }
 }
 
-/** Phase 2: reranking with rerank-3-lite. */
-export function createVoyageReranker(_config: VoyageConfig & { model: string }): Reranker {
-  return {
-    async rerank() {
-      throw new NotImplemented("VoyageReranker.rerank");
-    },
-  };
+/**
+ * Phase 2: reranking with rerank-3-lite, in one request. Training opt-out must be on (ADR-0005).
+ * A refused request throws with its status only, because the body may echo the passages.
+ */
+export class VoyageReranker implements Reranker {
+  private readonly apiKey: string;
+  private readonly model: string;
+
+  constructor({ apiKey, model }: VoyageConfig & { model: string }) {
+    this.apiKey = apiKey;
+    this.model = model;
+  }
+
+  async rerank(question: string, passages: string[], top: number) {
+    const response = await fetch(VOYAGE_RERANK_URL, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${this.apiKey}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ query: question, documents: passages, model: this.model, top_k: Math.min(top, passages.length) }),
+    });
+    if (!response.ok) throw new Error(`Voyage refused to rerank ${passages.length} passages with status ${response.status}.`);
+    // Voyage's documented response shape: the kept documents, most relevant first.
+    const { data, usage } = (await response.json()) as RerankResponse;
+    const order = [...data].sort((a, b) => b.relevance_score - a.relevance_score).map((item) => item.index);
+    const tokens = usage.total_tokens;
+    const costUsd = (tokens / 1_000_000) * (USD_PER_MILLION_TOKENS[this.model] ?? 0);
+    return { order, usage: [{ kind: "rerank", provider: "voyage", model: this.model, units: tokens, unit: "token", costUsd } satisfies Usage] };
+  }
 }

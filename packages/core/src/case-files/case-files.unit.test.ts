@@ -37,7 +37,7 @@ describe("CaseFiles.startUpload", () => {
 
     expect(uploadId).toBeTruthy();
     expect(await caseFiles.list(lawyer)).toEqual([
-      { id: caseFileId, name: "Autos 123.pdf", status: "uploading", pageCount: 10, pagesDone: 0, createdAt: expect.any(Date) },
+      { id: caseFileId, name: "Autos 123.pdf", status: "uploading", ingesting: true, pageCount: 10, pagesDone: 0, createdAt: expect.any(Date) },
     ]);
   });
 

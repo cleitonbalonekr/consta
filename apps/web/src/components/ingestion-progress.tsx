@@ -21,13 +21,6 @@ const STEPS: Array<{ status: CaseFileStatus; label: string }> = [
   { status: "ready", label: "Pronto para perguntas" },
 ];
 
-const INGESTING: CaseFileStatus[] = ["uploading", "queued", "processing", "mapping"];
-
-/** Whether the case file is still on its way to ready or failed. */
-export function isIngesting(status: CaseFileStatus) {
-  return INGESTING.includes(status);
-}
-
 type IngestionProgressProps = {
   status: CaseFileStatus;
   pagesDone: number;

@@ -56,8 +56,8 @@ The web app's screens only call Case files and Answering; its sign-in calls Mete
 
 | Module | What callers know (interface) | What it hides (implementation) | Called by |
 | --- | --- | --- | --- |
-| **Case files** | Start and finish an upload, view, list, get a read URL, remove. `CaseFileLifecycle`: the status changes of ingestion | Status lifecycle, page-quota check, multipart upload bookkeeping, ownership checks, ordered deletion of every derived row and the stored PDF | `apps/web`; `CaseFileLifecycle` by Ingestion |
-| **Ingestion** | `plan`, `ingestRange`, `map`, `fail`, run in that order; every step is idempotent. `ingestAll` runs them in-process | Page classification, text and block extraction of digital pages (scanned pages are marked as not read, ADR-0010), folha detection, passage splitting inside a page, embedding, document map windowing and merging, facts, progress, the ready email | `apps/jobs`, the inline `Jobs` adapter |
+| **Case files** | Start and finish an upload, view, list, get a read URL, remove; a view says whether the case file is still ingesting. `CaseFileLifecycle`: the status changes of ingestion, each safe to run again, and failing, which gives the pages back | Status lifecycle, which statuses count as ingesting, retry-safety of every ingestion step, page-quota check, the pages given back on failure, multipart upload bookkeeping, ownership checks, ordered deletion of every derived row and the stored PDF | `apps/web`; `CaseFileLifecycle` by Ingestion |
+| **Ingestion** | `ingest` runs it all, with a `RangeRunner` that runs the ranges in-process or as Trigger.dev tasks; `ingestRange` for such a runner, `giveUp` when a run dies. Every method is idempotent | The step order, attempts per step and per range, the failure reason, page classification, text and block extraction of digital pages (scanned pages are marked as not read, ADR-0010), folha detection, passage splitting inside a page, embedding, document map windowing and merging, facts, progress, the ready email | `apps/jobs`, the inline `Jobs` adapter |
 | **Answering** | `ask` returns a stream of statements, each with at least one citation | Scope handling, hybrid search and reranking, source blocks per page, token budget, prompt caching, citation-to-page resolution, dropping uncited statements, saving the question, metering | `apps/web` |
 | **Metering** | `record` usage, `startTrial` and `pagesLeft` for a lawyer, `chargePages` and `givePagesBack` for a case file | Cost per provider and unit, the monthly page-quota window, plan limits | The other three modules, the web app's sign-in, the operator page |
 
@@ -100,30 +100,41 @@ export class CaseFiles {
 
 ```ts
 // packages/core/src/ingestion/index.ts
-/** Call order: plan, then ingestRange for every range (in parallel), then map. Any step may be retried. */
+/** Runs ingestRange for each range, 4 attempts at most, and returns the ranges that failed on every attempt. */
+export interface RangeRunner {
+  run(caseFileId: CaseFileId, ranges: PageRange[]): Promise<PageRange[]>;
+}
+
+/** Every method can run again on the same case file. */
 export class Ingestion {
   // Ticket 09 adds the MapExtractor, ticket 13 the Mailer.
-  constructor(deps: { uow: UnitOfWork; files: FileStore; embedder: Embedder; metering: Metering; lifecycle: CaseFileLifecycle });
-  plan(caseFileId: CaseFileId): Promise<PageRange[]>;
-  /** A retry replaces the pages and passages of that range only. */
+  constructor(deps: { uow: UnitOfWork; files: FileStore; embedder: Embedder; metering: Metering }); // builds its own CaseFileLifecycle
+  /**
+   * Plans, has `ranges` run the ranges (in-process by default), and marks the case file ready with
+   * its unread scanned pages. Unread ranges fail it with a reason naming their pages; any other
+   * failure fails it with a general reason and is rethrown. Failing gives the pages back to the quota.
+   */
+  ingest(caseFileId: CaseFileId, ranges?: RangeRunner): Promise<void>;
+  /** For a RangeRunner. A retry replaces the pages and passages of that range only. */
   ingestRange(caseFileId: CaseFileId, range: PageRange): Promise<void>;
-  /** Marks the case file ready with its unread scanned pages. Ticket 09 builds the document map and facts here first. */
-  map(caseFileId: CaseFileId): Promise<void>;
-  /** The reason is Portuguese, for the lawyer. Gives the pages back to the quota. */
-  fail(caseFileId: CaseFileId, reason: string): Promise<void>;
-  /** plan, every range with 4 attempts, then map, in-process; fail when a step fails for good. For the inline Jobs adapter. */
-  ingestAll(caseFileId: CaseFileId): Promise<void>;
+  /** Fails the case file with a general reason when the run itself dies, unless it is ready or already failed. */
+  giveUp(caseFileId: CaseFileId): Promise<void>;
 }
 
 // packages/core/src/case-files/lifecycle.ts
-/** Each method locks the case file row, joins the caller's run, and does nothing when the status is already its target. */
+/**
+ * Each method locks the case file row and joins the caller's run. A step the case file is
+ * already at, or past on the way to ready, does nothing.
+ */
 export class CaseFileLifecycle {
-  constructor(deps: { uow: UnitOfWork });
+  constructor(deps: { uow: UnitOfWork; metering: Metering });
   target(caseFileId: CaseFileId): Promise<IngestionTarget>; // lawyer, storage key, size, page count, status
   startProcessing(caseFileId: CaseFileId): Promise<void>;
   recordPagesRead(caseFileId: CaseFileId, pages: number): Promise<void>; // only goes up
   startMapping(caseFileId: CaseFileId): Promise<void>;
-  markReady(caseFileId: CaseFileId, unreadPages: UnreadPages): Promise<void>;
+  /** `scannedPages`: the numbers of the pages not read, in order. */
+  markReady(caseFileId: CaseFileId, scannedPages: number[]): Promise<void>;
+  /** Gives the pages back to the quota. A ready or failed case file stays as it is. */
   fail(caseFileId: CaseFileId, reason: string): Promise<void>;
 }
 ```
@@ -132,6 +143,7 @@ export class CaseFileLifecycle {
 // packages/core/src/answering/index.ts
 export class Answering {
   constructor(deps: { uow: UnitOfWork; embedder: Embedder; reranker: Reranker; model: CitingModel; metering: Metering });
+  /** Yields `refused: "not-ready"` unless the case file is ready, then each cited statement, then `done`; `refused: "declined"` ends it when the model declines. Throws NotFound. */
   ask(lawyer: LawyerId, question: QuestionInput): AsyncIterable<AnswerEvent>;
 }
 
@@ -143,7 +155,7 @@ export type Scope = { kind: "whole-file" } | { kind: "peca"; pecaId: PecaId };
 
 export type AnswerEvent =
   | { type: "statement"; statement: Statement }
-  | { type: "refused"; reason: "not-ready" | "scope-too-large" }
+  | { type: "refused"; reason: "not-ready" | "scope-too-large" | "declined" }
   | { type: "done"; questionId: QuestionId; dropped: number }; // dropped = uncited statements removed
 
 export type Statement = { text: string; citations: [Citation, ...Citation[]] }; // never empty, by type
@@ -197,7 +209,7 @@ Each port is a real seam: it has a production adapter and an in-memory fake used
 | `Reranker` | Orders passages for a question | Voyage | Keeps the input order |
 | `CitingModel` | Answers from source blocks, returning text with the ids of the sources it cites | Claude Sonnet with native citations | Scripted answers, including uncited ones |
 | `MapExtractor` | Reads a window of pages and returns peças and facts | Claude Haiku | Scripted peças and facts |
-| `Jobs` | Starts ingestion of a case file | Trigger.dev, with the case file id as the idempotency key, in both adapter modes (ADR-0009) | Inline: runs `Ingestion.ingestAll` in-process and returns at once (the E2E server, `CONSTA_JOBS=inline`). Recording: records the request only (tests that run the steps themselves) |
+| `Jobs` | Starts ingestion of a case file | Trigger.dev, with the case file id as the idempotency key, in both adapter modes (ADR-0009) | Inline: runs `Ingestion.ingest` in-process and returns at once (the E2E server, `CONSTA_JOBS=inline`). Recording: records the request only (tests that run the steps themselves) |
 | `Mailer` | Sends a templated email | Resend | In-memory outbox |
 | Repositories (one per module) | Read and write the module's tables, including hybrid search | Drizzle on Postgres | In-memory tables |
 | `UnitOfWork` | Runs work in one transaction with repositories bound to it | Drizzle transaction | Copies the in-memory state and restores it if the work throws |

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { embedderContract, fileStoreContract } from "../contracts";
-import { FakeCitingModel, FakeEmbedder, InMemoryFileStore, InMemoryMailer } from "./index";
+import { citingModelContract, embedderContract, fileStoreContract, rerankerContract } from "../contracts";
+import { FakeCitingModel, FakeEmbedder, FakeReranker, InMemoryFileStore, InMemoryMailer } from "./index";
 
 describe("InMemoryFileStore", () => {
   fileStoreContract(async () => {
@@ -22,18 +22,32 @@ describe("FakeEmbedder", () => {
   });
 });
 
+describe("FakeReranker", () => {
+  rerankerContract(async () => ({ reranker: new FakeReranker() }));
+});
+
 describe("FakeCitingModel", () => {
-  it("cites the first source by default and reports usage last", async () => {
+  citingModelContract(async () => ({ model: new FakeCitingModel() }));
+
+  it("cites the first two sources by default, adds an uncited line, and reports usage last", async () => {
     const events = [];
     for await (const event of new FakeCitingModel().answer({
       instructions: "",
       question: "Qual a decisão?",
-      sources: [{ id: "p12", title: "Página 12", text: "Julgo procedente." }],
+      sources: [
+        { id: "p12", title: "Página 12", text: "Julgo procedente." },
+        { id: "p13", title: "Página 13", text: "Custas pelo réu." },
+        { id: "p14", title: "Página 14", text: "Publique-se." },
+      ],
       cacheSources: false,
     })) {
       events.push(event);
     }
-    expect(events[0]).toEqual({ type: "text", text: "Resposta falsa.", sourceIds: ["p12"] });
+    expect(events.slice(0, 3)).toEqual([
+      { type: "text", text: "Afirmação 1 de exemplo, de Página 12.\n", sourceIds: ["p12"] },
+      { type: "text", text: "Afirmação 2 de exemplo, de Página 13.\n", sourceIds: ["p13"] },
+      { type: "text", text: "Afirmação de exemplo sem citação.\n", sourceIds: [] },
+    ]);
     expect(events.at(-1)?.type).toBe("usage");
   });
 });

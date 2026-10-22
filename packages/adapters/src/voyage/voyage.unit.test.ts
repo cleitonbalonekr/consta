@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { VoyageEmbedder } from "./index";
+import { VoyageEmbedder, VoyageReranker } from "./index";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -56,5 +56,48 @@ describe("VoyageEmbedder", () => {
     stubFetch(429);
 
     await expect(embedder().embed(["Texto dos autos."], "passage")).rejects.toThrow("Voyage refused 1 texts with status 429.");
+  });
+});
+
+describe("VoyageReranker", () => {
+  const reranker = () => new VoyageReranker({ apiKey: "pa-test", model: "rerank-3-lite" });
+
+  /** Answers like Voyage: the kept documents with their scores, and the tokens used. */
+  function stubRerank(status = 200) {
+    const fetch = vi.fn(async (_url: string, _init: RequestInit) => {
+      const data = [
+        { index: 2, relevance_score: 0.4 },
+        { index: 0, relevance_score: 0.9 },
+      ];
+      return new Response(JSON.stringify({ object: "list", data, model: "rerank-3-lite", usage: { total_tokens: 500 } }), { status });
+    });
+    vi.stubGlobal("fetch", fetch);
+    return fetch;
+  }
+
+  it("asks Voyage for at most `top` documents, and no more than it sends", async () => {
+    const fetch = stubRerank();
+
+    await reranker().rerank("O que decidiu?", ["a", "b", "c"], 20);
+
+    const [url, init] = fetch.mock.calls[0]!;
+    expect(url).toBe("https://api.voyageai.com/v1/rerank");
+    expect(new Headers(init.headers).get("Authorization")).toBe("Bearer pa-test");
+    expect(JSON.parse(String(init.body))).toEqual({ query: "O que decidiu?", documents: ["a", "b", "c"], model: "rerank-3-lite", top_k: 3 });
+  });
+
+  it("returns the indexes most relevant first, with the tokens as rerank usage", async () => {
+    stubRerank();
+
+    const { order, usage } = await reranker().rerank("O que decidiu?", ["a", "b", "c"], 2);
+
+    expect(order).toEqual([0, 2]);
+    expect(usage).toEqual([{ kind: "rerank", provider: "voyage", model: "rerank-3-lite", units: 500, unit: "token", costUsd: expect.closeTo(0.00001, 12) }]);
+  });
+
+  it("fails with the status only when Voyage refuses the request", async () => {
+    stubRerank(500);
+
+    await expect(reranker().rerank("O que decidiu?", ["Texto dos autos."], 1)).rejects.toThrow("Voyage refused to rerank 1 passages with status 500.");
   });
 });

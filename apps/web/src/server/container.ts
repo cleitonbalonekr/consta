@@ -1,8 +1,7 @@
 import "server-only";
-import { CaseFileLifecycle, CaseFiles, createAnswering, Ingestion, Metering } from "@consta/core";
-import type { Answering } from "@consta/core";
+import { Answering, CaseFiles, Ingestion, Metering } from "@consta/core";
 import { createDb, DrizzleUnitOfWork } from "@consta/core/db";
-import { adaptersFromEnv, jobsFromEnv, usesFakeAdapters } from "@consta/adapters";
+import { AdaptersFromEnv } from "@consta/adapters";
 import { createAuth } from "./auth";
 import type { Auth } from "./auth";
 
@@ -27,20 +26,19 @@ export function container(): Container {
 }
 
 function buildContainer(): Container {
-  const env = process.env;
-  const db = createDb(env.DATABASE_URL ?? "postgres://consta:consta@localhost:5432/consta");
+  const adapters = new AdaptersFromEnv(process.env);
+  const db = createDb(adapters.databaseUrl);
   const uow = new DrizzleUnitOfWork(db);
-  const adapters = adaptersFromEnv(env);
   const metering = new Metering({ uow });
   let ingestion: Ingestion | undefined;
-  const jobs = jobsFromEnv(env, () => {
-    ingestion ??= new Ingestion({ uow, files: adapters.files, embedder: adapters.embedder, metering, lifecycle: new CaseFileLifecycle({ uow }) });
-    return (caseFileId) => ingestion!.ingestAll(caseFileId);
+  const jobs = adapters.jobs(() => {
+    ingestion ??= new Ingestion({ uow, files: adapters.files, embedder: adapters.embedder, metering });
+    return (caseFileId) => ingestion!.ingest(caseFileId);
   });
 
   return {
     caseFiles: new CaseFiles({ uow, files: adapters.files, jobs, metering }),
-    answering: createAnswering({ uow, metering, ...adapters }),
-    auth: createAuth({ db, mailer: adapters.mailer, metering, limitSignIns: !usesFakeAdapters(env) }),
+    answering: new Answering({ uow, metering, embedder: adapters.embedder, reranker: adapters.reranker, model: adapters.model }),
+    auth: createAuth({ db, mailer: adapters.mailer, metering, limitSignIns: !adapters.fake }),
   };
 }

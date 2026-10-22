@@ -11,7 +11,7 @@
  */
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { CaseFileLifecycle, CaseFiles, Ingestion, LawyerId, MAX_PAGES, Metering } from "@consta/core";
+import { CaseFiles, Ingestion, LawyerId, MAX_PAGES, Metering } from "@consta/core";
 import { FakeEmbedder, InMemoryFileStore, InMemoryUnitOfWork, RecordingJobs } from "@consta/core/fakes";
 import type { InMemoryState } from "@consta/core/fakes";
 import type { Embedder } from "@consta/core/ports";
@@ -37,7 +37,7 @@ class ExtractionCheck {
     const uow = new InMemoryUnitOfWork();
     const files = new InMemoryFileStore();
     const metering = new Metering({ uow });
-    const ingestion = new Ingestion({ uow, files, embedder: this.embedder, metering, lifecycle: new CaseFileLifecycle({ uow }) });
+    const ingestion = new Ingestion({ uow, files, embedder: this.embedder, metering });
     const caseFiles = new CaseFiles({ uow, files, jobs: new RecordingJobs(), metering });
     const lawyer = LawyerId("extraction-check");
     // Any case file the pilot accepts, past the Trial quota.
@@ -48,7 +48,7 @@ class ExtractionCheck {
     await files.putPart(await caseFiles.signUploadPart(lawyer, caseFileId, 1), pdf);
     await caseFiles.finishUpload(lawyer, caseFileId);
     const started = performance.now();
-    await ingestion.ingestAll(caseFileId);
+    await ingestion.ingest(caseFileId);
     const seconds = (performance.now() - started) / 1000;
 
     const { ingestion: stored, metering: metered } = uow.state;

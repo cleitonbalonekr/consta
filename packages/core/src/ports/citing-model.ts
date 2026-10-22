@@ -6,7 +6,9 @@ export type Source = { id: string; title: string; text: string };
 export type CitingModelEvent =
   /** A run of answer text and the ids of the sources it cites. Empty `sourceIds` means uncited. */
   | { type: "text"; text: string; sourceIds: string[] }
-  | { type: "usage"; usage: Usage };
+  | { type: "usage"; usage: Usage }
+  /** The provider declined to answer, after some text perhaps. Last, after the usage; the text before it is partial. */
+  | { type: "declined" };
 
 /**
  * Answers a question from sources and says which sources support each piece of text.

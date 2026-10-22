@@ -1,6 +1,6 @@
 import { CaseFileId, NotFound } from "@consta/core";
 import type { AnswerEvent } from "@consta/core";
-import { ANSWER_STREAM_TYPE, encodeAnswerEvents } from "@/lib/answer-stream";
+import { ANSWER_STREAM_TYPE, encodeAnswerEvents, prepend } from "@/lib/answer-stream";
 import { parseQuestionRequest } from "@/lib/question-request";
 import { container } from "@/server/container";
 import { currentLawyer } from "@/server/lawyer";
@@ -26,10 +26,4 @@ export async function POST(request: Request, ctx: RouteContext<"/api/case-files/
   return new Response(encodeAnswerEvents(prepend(first, events)), {
     headers: { "Content-Type": ANSWER_STREAM_TYPE, "Cache-Control": "no-store" },
   });
-}
-
-async function* prepend<T>(first: IteratorResult<T>, rest: AsyncIterator<T>): AsyncIterable<T> {
-  if (first.done) return;
-  yield first.value;
-  for (let next = await rest.next(); !next.done; next = await rest.next()) yield next.value;
 }

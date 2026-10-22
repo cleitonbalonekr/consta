@@ -2,7 +2,6 @@ import type { CaseFileSummary } from "@consta/core";
 import { FileText } from "lucide-react";
 import Link from "next/link";
 import { DeleteCaseFile } from "@/components/delete-case-file";
-import { isIngesting } from "@/components/ingestion-progress";
 import { RefreshWhileIngesting } from "@/components/refresh-while-ingesting";
 import { StatusBadge } from "@/components/status-badge";
 import { UploadCaseFile } from "@/components/upload-case-file";
@@ -20,7 +19,7 @@ export default async function CaseFileListPage() {
 
   return (
     <main className="mx-auto w-full max-w-4xl px-4 py-10 sm:px-6 sm:py-14">
-      <RefreshWhileIngesting active={caseFiles.some((caseFile) => isIngesting(caseFile.status))} />
+      <RefreshWhileIngesting active={caseFiles.some((caseFile) => caseFile.ingesting)} />
       <div className="animate-rise">
         <h1 className="text-3xl font-semibold tracking-tight text-foreground sm:text-4xl">Seus autos</h1>
         <p className="mt-2 max-w-xl text-muted">

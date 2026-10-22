@@ -1,3 +1,4 @@
+import type { AnsweringRepository } from "../answering";
 import type { CaseFileRepository } from "../case-files";
 import type { IngestionRepository } from "../ingestion";
 import type { MeteringRepository } from "../metering";
@@ -18,5 +19,6 @@ export interface UnitOfWork {
 export type Repositories = {
   caseFiles: CaseFileRepository;
   ingestion: IngestionRepository;
+  answering: AnsweringRepository;
   metering: MeteringRepository;
 };

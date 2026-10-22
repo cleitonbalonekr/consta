@@ -55,4 +55,9 @@ export type FactKind = (typeof factKinds)[number];
 export const plans = ["trial", "pro", "enterprise"] as const;
 export type Plan = (typeof plans)[number];
 
-export type QuickAction = "timeline" | "people" | "amounts";
+/** What a question is about: the whole case file, or one peça. */
+export const scopeKinds = ["whole-file", "peca"] as const;
+export type ScopeKind = (typeof scopeKinds)[number];
+
+export const quickActions = ["timeline", "people", "amounts"] as const;
+export type QuickAction = (typeof quickActions)[number];
