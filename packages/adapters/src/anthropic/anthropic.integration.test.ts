@@ -9,6 +9,7 @@ describe.skipIf(!apiKey)("ClaudeCitingModel against Claude", () => {
   citingModelContract(async () => ({ model: new ClaudeCitingModel({ apiKey: apiKey!, model: "claude-sonnet-5-5" }) }));
 });
 
-describe.skipIf(!apiKey)("ClaudeMapExtractor against Claude", () => {
+// A window is mapped in one call that thinks before it answers, which takes longer than the default 5 s.
+describe.skipIf(!apiKey)("ClaudeMapExtractor against Claude", { timeout: 60_000 }, () => {
   mapExtractorContract(async () => ({ extractor: new ClaudeMapExtractor({ apiKey: apiKey!, model: "claude-haiku-5-5" }) }));
 });

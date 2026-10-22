@@ -38,3 +38,5 @@ Decisions:
 - **The fake extractor maps each window as peças of two pages**, of the types of a lawsuit in order, so fake mode and E2E show a document map; its usage counts the words read, like the fake citing model.
 - **`ClaudePrices`** now holds the price table for both Claude adapters.
 
+**2026-10-22, the Claude contract tests pass with a workspace-scoped key.** All 6 cases of `packages/adapters/src/anthropic/anthropic.integration.test.ts` pass against the real API: the 4 `MapExtractor` cases on Claude Haiku 5.5 (6 to 7 s each, so that describe now has a 60 s timeout) and the 2 `CitingModel` cases on Sonnet 5.5. Still open: the whole app in real mode, and the document map check on a real case file with the lawyer's own index.
+
