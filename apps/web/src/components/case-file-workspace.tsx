@@ -20,6 +20,7 @@ const SUGGESTIONS = ["Do que trata esta ação?", "O que a sentença decidiu?", 
 const REFUSALS = {
   "not-ready": "Estes autos ainda estão sendo lidos. Pergunte de novo quando a leitura terminar.",
   "scope-too-large": "Esta peça é grande demais para uma pergunta só. Escolha uma peça menor.",
+  declined: "Não conseguimos responder a esta pergunta. Tente reformulá-la.",
 };
 
 type AnswerState = {
@@ -287,7 +288,7 @@ function useAnswer(caseFileId: string) {
 
       for await (const event of decodeAnswerEvents(response.body)) {
         if (event.type === "statement") update((previous) => ({ ...previous, statements: [...previous.statements, event.statement] }));
-        if (event.type === "refused") update((previous) => ({ ...previous, state: "refused", message: REFUSALS[event.reason] }));
+        if (event.type === "refused") update((previous) => ({ ...previous, statements: [], state: "refused", message: REFUSALS[event.reason] }));
         if (event.type === "done") update((previous) => ({ ...previous, state: "done" }));
       }
     } catch {

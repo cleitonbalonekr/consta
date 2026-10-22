@@ -1,6 +1,6 @@
 import { expect, test, uniqueName } from "../../support/fixtures";
 
-// Needs real answers and a document map: Answering arrives with ticket 07, the document map with 09.
+// Needs a document map and quick actions: tickets 09 and 11.
 test.fixme();
 
 test("the case file page fits a tablet, and the viewer opens over it", async ({ caseFileList, caseFile, answer, viewer, page }) => {

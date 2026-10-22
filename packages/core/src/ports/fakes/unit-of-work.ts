@@ -1,4 +1,6 @@
 import { AsyncLocalStorage } from "node:async_hooks";
+import { RankFusion } from "../../answering";
+import type { AnsweringRepository, FoundPassage, QuestionRecord } from "../../answering";
 import { CaseFile } from "../../case-files";
 import type { CaseFileProps, CaseFileRepository } from "../../case-files";
 import type { IngestionRepository, PageRecord, PassageRecord } from "../../ingestion";
@@ -15,6 +17,7 @@ export type InMemoryState = {
     pages: (PageRecord & { caseFileId: CaseFileId })[];
     passages: (PassageRecord & { caseFileId: CaseFileId })[];
   };
+  answering: { questions: QuestionRecord[] };
   metering: {
     plans: Map<LawyerId, LawyerPlan>;
     charges: { lawyer: LawyerId; caseFileId: CaseFileId | null; pages: number; createdAt: Date }[];
@@ -31,12 +34,14 @@ export class InMemoryUnitOfWork implements UnitOfWork {
   state: InMemoryState = {
     caseFiles: new Map(),
     ingestion: { ranges: [], pages: [], passages: [] },
+    answering: { questions: [] },
     metering: { plans: new Map(), charges: [], usage: [] },
   };
   private readonly inRun = new AsyncLocalStorage<true>();
   private readonly repos: Repositories = {
     caseFiles: new InMemoryCaseFileRepository(() => this.state),
     ingestion: new InMemoryIngestionRepository(() => this.state),
+    answering: new InMemoryAnsweringRepository(() => this.state),
     metering: new InMemoryMeteringRepository(() => this.state),
   };
 
@@ -138,6 +143,60 @@ class InMemoryIngestionRepository implements IngestionRepository {
 
   private range(caseFileId: CaseFileId, first: number) {
     return this.state().ingestion.ranges.find((range) => range.caseFileId === caseFileId && range.first === first);
+  }
+}
+
+/**
+ * Search without Postgres: cosine distance stands in for the vector index, and the count
+ * of the question's words in a passage stands in for Portuguese full-text search.
+ */
+class InMemoryAnsweringRepository implements AnsweringRepository {
+  constructor(private readonly state: () => InMemoryState) {}
+
+  async caseFileStatus(lawyer: LawyerId, caseFileId: CaseFileId) {
+    const props = this.state().caseFiles.get(caseFileId);
+    return props?.lawyer === lawyer ? props.status : null;
+  }
+
+  async search(caseFileId: CaseFileId, { text, embedding }: { text: string; embedding: number[] }, depth: number): Promise<FoundPassage[]> {
+    const passages = this.state().ingestion.passages.filter((passage) => passage.caseFileId === caseFileId);
+    const byVector = [...passages].sort((a, b) => this.cosine(b.embedding, embedding) - this.cosine(a.embedding, embedding)).slice(0, depth);
+    const questionWords = new Set(this.words(text));
+    const matches = (passage: { text: string }) => new Set(this.words(passage.text).filter((word) => questionWords.has(word))).size;
+    const byText = passages.filter((passage) => matches(passage) > 0).sort((a, b) => matches(b) - matches(a)).slice(0, depth);
+    return RankFusion.fuse([byVector, byText]).map((passage) => this.found(passage));
+  }
+
+  async saveQuestion(question: QuestionRecord) {
+    this.state().answering.questions.push(structuredClone(question));
+  }
+
+  private found({ caseFileId, page, text, blockIndexes }: InMemoryState["ingestion"]["passages"][number]): FoundPassage {
+    const stored = this.state().ingestion.pages.find((record) => record.caseFileId === caseFileId && record.number === page);
+    const boxes = blockIndexes.flatMap((index) => stored?.blocks[index]?.box ?? []);
+    return { id: this.passageId(caseFileId, page, blockIndexes), page, folha: stored?.folha ?? null, text, boxes };
+  }
+
+  /** The fake stores no passage ids; a passage's case file, page and first block name it. */
+  private passageId(caseFileId: CaseFileId, page: number, blockIndexes: number[]) {
+    return `${caseFileId}:${page}:${blockIndexes[0] ?? 0}`;
+  }
+
+  /** Lowercase words of three letters or more, so most Portuguese articles and prepositions don't match. */
+  private words(text: string) {
+    return (text.toLowerCase().match(/\p{L}+/gu) ?? []).filter((word) => word.length >= 3);
+  }
+
+  private cosine(a: number[], b: number[]) {
+    let dot = 0;
+    let lengthA = 0;
+    let lengthB = 0;
+    a.forEach((value, i) => {
+      dot += value * (b[i] ?? 0);
+      lengthA += value * value;
+      lengthB += (b[i] ?? 0) ** 2;
+    });
+    return dot / (Math.sqrt(lengthA * lengthB) || 1);
   }
 }
 

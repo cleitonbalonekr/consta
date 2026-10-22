@@ -19,8 +19,9 @@ import {
   uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
-import { caseFileStatuses, factKinds, pecaTypes, plans } from "../shared/values";
+import { caseFileStatuses, factKinds, pecaTypes, plans, quickActions, scopeKinds } from "../shared/values";
 import type { Box } from "../shared/values";
+import type { Statement } from "../answering";
 
 /** Dimensions of the passage embeddings. Changing it needs a re-embed of every passage. */
 export const EMBEDDING_DIMENSIONS = 1024;
@@ -34,6 +35,8 @@ export const pageSource = pgEnum("page_source", ["digital", "scanned"]);
 export const pecaType = pgEnum("peca_type", pecaTypes);
 export const factKind = pgEnum("fact_kind", factKinds);
 export const plan = pgEnum("plan", plans);
+export const questionScope = pgEnum("question_scope", scopeKinds);
+export const quickAction = pgEnum("quick_action", quickActions);
 export const usageKind = pgEnum("usage_kind", ["ocr", "embed", "rerank", "extract", "answer"]);
 
 const updatedAt = () =>
@@ -237,16 +240,21 @@ export const question = pgTable(
     id: uuid("id").primaryKey().defaultRandom(),
     caseFileId: uuid("case_file_id").notNull().references(() => caseFile.id, { onDelete: "cascade" }),
     lawyerId: lawyerId(),
-    /** "whole-file", "peca" or a quick action. */
-    scope: text("scope").notNull(),
-    pecaId: uuid("peca_id").references(() => peca.id, { onDelete: "set null" }),
+    scope: questionScope("scope").notNull(),
+    /** Set for a quick action, which is about the whole case file. */
+    quickAction: quickAction("quick_action"),
+    /** Cascade, not set null: a peça question without its peça would break the scope check. */
+    pecaId: uuid("peca_id").references(() => peca.id, { onDelete: "cascade" }),
     text: text("text").notNull(),
-    answer: jsonb("answer").notNull(),
+    answer: jsonb("answer").$type<Statement[]>().notNull(),
     droppedStatements: integer("dropped_statements").notNull().default(0),
     feedback: jsonb("feedback"),
     createdAt: createdAt(),
   },
-  (t) => [index("question_case_file_idx").on(t.caseFileId, t.createdAt)],
+  (t) => [
+    index("question_case_file_idx").on(t.caseFileId, t.createdAt),
+    check("question_scope_peca_check", sql`(${t.scope} = 'peca') = (${t.pecaId} IS NOT NULL)`),
+  ],
 );
 
 /**

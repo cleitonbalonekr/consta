@@ -1,7 +1,7 @@
 import type { AnswerEvent } from "@consta/core";
 import { QuestionId } from "@consta/core";
 import { describe, expect, it } from "vitest";
-import { decodeAnswerEvents, encodeAnswerEvents } from "./answer-stream";
+import { decodeAnswerEvents, encodeAnswerEvents, prepend } from "./answer-stream";
 
 const events: AnswerEvent[] = [
   {
@@ -51,5 +51,24 @@ describe("answer stream", () => {
     }
 
     await expect(collect(encodeAnswerEvents(failing()))).rejects.toThrow();
+  });
+
+  it("stops the answer behind it when the lawyer cancels the stream", async () => {
+    let stopped = false;
+    async function* answering(): AsyncGenerator<AnswerEvent> {
+      try {
+        yield* events;
+      } finally {
+        stopped = true;
+      }
+    }
+    const rest = answering();
+    const first = await rest.next();
+
+    const reader = encodeAnswerEvents(prepend(first, rest)).getReader();
+    await reader.read();
+    await reader.cancel();
+
+    expect(stopped).toBe(true);
   });
 });

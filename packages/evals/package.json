@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "typecheck": "tsc",
-    "extraction-check": "tsx src/extraction-check.ts"
+    "extraction-check": "tsx src/extraction-check.ts",
+    "citation-check": "tsx src/citation-check.ts"
   },
   "devDependencies": {
     "@types/node": "^20.19.43",

@@ -132,6 +132,7 @@ export class CaseFileLifecycle {
 // packages/core/src/answering/index.ts
 export class Answering {
   constructor(deps: { uow: UnitOfWork; embedder: Embedder; reranker: Reranker; model: CitingModel; metering: Metering });
+  /** Yields `refused: "not-ready"` unless the case file is ready, then each cited statement, then `done`; `refused: "declined"` ends it when the model declines. Throws NotFound. */
   ask(lawyer: LawyerId, question: QuestionInput): AsyncIterable<AnswerEvent>;
 }
 

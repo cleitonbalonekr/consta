@@ -9,11 +9,11 @@ import {
 } from "@consta/core/fakes";
 import type { CaseFileId } from "@consta/core";
 import type { CitingModel, Embedder, FileStore, Jobs, Mailer, MapExtractor, Reranker } from "@consta/core/ports";
-import { createClaudeCitingModel, createClaudeMapExtractor } from "./anthropic";
+import { ClaudeCitingModel, createClaudeMapExtractor } from "./anthropic";
 import { createResendMailer } from "./resend-mailer";
 import { S3FileStore } from "./s3-file-store";
 import { TriggerJobs } from "./trigger-jobs";
-import { createVoyageReranker, VoyageEmbedder } from "./voyage";
+import { VoyageEmbedder, VoyageReranker } from "./voyage";
 
 export type ExternalAdapters = {
   files: FileStore;
@@ -48,8 +48,8 @@ export function adaptersFromEnv(env: Env): ExternalAdapters {
   return {
     files: fileStoreFromEnv(env),
     embedder: new VoyageEmbedder({ ...voyage, model: "voyage-4-lite", dimensions: EMBEDDING_DIMENSIONS }),
-    reranker: createVoyageReranker({ ...voyage, model: "rerank-3-lite" }),
-    model: createClaudeCitingModel({ ...anthropic, model: "claude-sonnet-5-5" }),
+    reranker: new VoyageReranker({ ...voyage, model: "rerank-3-lite" }),
+    model: new ClaudeCitingModel({ ...anthropic, model: "claude-sonnet-5-5" }),
     extractor: createClaudeMapExtractor({ ...anthropic, model: "claude-haiku-5-5" }),
     mailer: mailerFromEnv(env),
   };

@@ -1,6 +1,5 @@
 import "server-only";
-import { CaseFileLifecycle, CaseFiles, createAnswering, Ingestion, Metering } from "@consta/core";
-import type { Answering } from "@consta/core";
+import { Answering, CaseFileLifecycle, CaseFiles, Ingestion, Metering } from "@consta/core";
 import { createDb, DrizzleUnitOfWork } from "@consta/core/db";
 import { adaptersFromEnv, jobsFromEnv, usesFakeAdapters } from "@consta/adapters";
 import { createAuth } from "./auth";
@@ -40,7 +39,7 @@ function buildContainer(): Container {
 
   return {
     caseFiles: new CaseFiles({ uow, files: adapters.files, jobs, metering }),
-    answering: createAnswering({ uow, metering, ...adapters }),
+    answering: new Answering({ uow, metering, embedder: adapters.embedder, reranker: adapters.reranker, model: adapters.model }),
     auth: createAuth({ db, mailer: adapters.mailer, metering, limitSignIns: !usesFakeAdapters(env) }),
   };
 }
