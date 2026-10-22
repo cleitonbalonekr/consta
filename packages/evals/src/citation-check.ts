@@ -68,7 +68,7 @@ class CitationCheck {
     const { caseFileId } = await caseFiles.startUpload(lawyer, { name, bytes: pdf.length, pages: 1 });
     await files.putPart(await caseFiles.signUploadPart(lawyer, caseFileId, 1), pdf);
     await caseFiles.finishUpload(lawyer, caseFileId);
-    await ingestion.ingestAll(caseFileId);
+    await ingestion.ingest(caseFileId);
     return caseFileId;
   }
 

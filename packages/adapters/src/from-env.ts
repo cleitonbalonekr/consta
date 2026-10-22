@@ -68,10 +68,10 @@ export function mailerFromEnv(env: Env): Mailer {
  * The Jobs adapter for the web app. Trigger.dev in both modes: locally, `pnpm dev:jobs`
  * runs the tasks on this machine for the Trigger.dev dev environment (ADR-0009).
  * CONSTA_JOBS=inline runs ingestion in this process, for the E2E server, which has no
- * Trigger.dev key; `ingestAll` is asked for only then, so only then is Ingestion built.
+ * Trigger.dev key; `ingest` is asked for only then, so only then is Ingestion built.
  */
-export function jobsFromEnv(env: Env, ingestAll: () => (caseFileId: CaseFileId) => Promise<void>): Jobs {
-  if (env.CONSTA_JOBS === "inline") return new InlineJobs(ingestAll, logFailedIngestion);
+export function jobsFromEnv(env: Env, ingest: () => (caseFileId: CaseFileId) => Promise<void>): Jobs {
+  if (env.CONSTA_JOBS === "inline") return new InlineJobs(ingest, logFailedIngestion);
   // The Trigger.dev SDK reads the key from process.env itself; this check fails at start instead of at the first upload.
   required(env, "TRIGGER_SECRET_KEY");
   return new TriggerJobs();

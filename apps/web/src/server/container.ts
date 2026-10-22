@@ -34,7 +34,7 @@ function buildContainer(): Container {
   let ingestion: Ingestion | undefined;
   const jobs = jobsFromEnv(env, () => {
     ingestion ??= new Ingestion({ uow, files: adapters.files, embedder: adapters.embedder, metering, lifecycle: new CaseFileLifecycle({ uow }) });
-    return (caseFileId) => ingestion!.ingestAll(caseFileId);
+    return (caseFileId) => ingestion!.ingest(caseFileId);
   });
 
   return {

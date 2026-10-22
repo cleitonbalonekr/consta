@@ -1,4 +1,5 @@
-import { Ingestion, PageRange, RANGE_ATTEMPTS } from "@consta/core";
+import { PageRange, RANGE_ATTEMPTS } from "@consta/core";
+import type { CaseFileId, RangeRunner } from "@consta/core";
 import { INGEST_CASE_FILE_TASK } from "@consta/adapters";
 import type { IngestCaseFilePayload } from "@consta/adapters";
 import { task } from "@trigger.dev/sdk";
@@ -16,28 +17,26 @@ export const ingestRange = task({
   },
 });
 
+/** Runs each range as its own task, all in parallel, and returns the ranges whose task failed for good. */
+const parallelRanges: RangeRunner = {
+  async run(caseFileId: CaseFileId, ranges: PageRange[]) {
+    const results = await ingestRange.batchTriggerAndWait(ranges.map((range) => ({ payload: { caseFileId, range } })));
+    // The runs come back in the order of the items.
+    return ranges.filter((_, i) => !results.runs[i]?.ok);
+  },
+};
+
 /**
- * Plans the ranges, ingests them in parallel, then marks the case file ready. A range
- * that fails on every attempt fails the case file; so does this task when it fails for good.
+ * Ingests a case file, with its ranges in parallel. Ingestion retries its own steps and fails
+ * the case file itself, so this task does not run again; onFailure covers a run that dies.
  */
 export const ingestCaseFile = task({
   id: INGEST_CASE_FILE_TASK,
-  retry: { maxAttempts: 2 },
+  retry: { maxAttempts: 1 },
   run: async ({ caseFileId }: IngestCaseFilePayload) => {
-    const { ingestion } = container();
-    const ranges = await ingestion.plan(caseFileId);
-
-    const results = await ingestRange.batchTriggerAndWait(ranges.map((range) => ({ payload: { caseFileId, range } })));
-    // The runs come back in the order of the items.
-    const failed = ranges.filter((_, i) => !results.runs[i]?.ok);
-    if (failed.length > 0) {
-      await ingestion.fail(caseFileId, Ingestion.unreadRangesReason(failed));
-      return;
-    }
-
-    await ingestion.map(caseFileId);
+    await container().ingestion.ingest(caseFileId, parallelRanges);
   },
   onFailure: async ({ payload }) => {
-    await container().ingestion.fail(payload.caseFileId, Ingestion.unreadableFileReason);
+    await container().ingestion.giveUp(payload.caseFileId);
   },
 });

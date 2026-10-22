@@ -77,7 +77,7 @@ export function ingestionOn(uow: UnitOfWork, options: { embedder?: Embedder; sta
   const metering = new Metering({ uow });
   const lifecycle = new CaseFileLifecycle({ uow });
   const ingestion = new Ingestion({ uow, files, embedder, metering, lifecycle });
-  const jobs = new InlineJobs(() => (caseFileId) => ingestion.ingestAll(caseFileId));
+  const jobs = new InlineJobs(() => (caseFileId) => ingestion.ingest(caseFileId));
   const caseFiles = new CaseFiles({ uow, files, jobs: startIngestion ? jobs : new RecordingJobs(), metering });
 
   /** What the browser does: uploads the PDF and finishes the upload, which starts ingestion. */

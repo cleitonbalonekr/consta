@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest";
 import type { Embedder } from "../ports";
 import { FakeEmbedder, InMemoryUnitOfWork } from "../ports/fakes";
-import { LawyerId, PageRange } from "../shared";
-import type { CaseFileId } from "../shared";
-import { Ingestion, PAGES_PER_BATCH, RANGE_ATTEMPTS } from "./index";
+import { LawyerId } from "../shared";
+import type { CaseFileId, PageRange } from "../shared";
+import { PAGES_PER_BATCH, RANGE_ATTEMPTS } from "./index";
+import type { RangeRunner } from "./index";
 import { digitalLines, fixturePdf, ingestionOn } from "./testing";
 import type { FixturePage } from "./testing";
 
@@ -38,21 +39,54 @@ async function setup(options: Parameters<typeof ingestionOn>[1] = {}) {
 }
 
 const digital = (pages: number): FixturePage[] => Array.from({ length: pages }, () => "digital");
+const scanned = (pages: number): FixturePage[] => Array.from({ length: pages }, () => "scanned");
 
-describe("Ingestion.plan", () => {
-  it("splits the case file into ranges of 100 pages and records each one once", async () => {
+/** A runner that reads none of the ranges and reports the ones `unread` picks by position. */
+const reportingUnread = (unread: (index: number) => boolean, planned: PageRange[] = []): RangeRunner => ({
+  async run(_caseFileId, ranges) {
+    planned.push(...ranges);
+    return ranges.filter((_, index) => unread(index));
+  },
+});
+
+describe("Ingestion.ingest with a range runner", () => {
+  it("hands the runner ranges of 100 pages, and records each range once", async () => {
     const { ingestion, upload, lawyer, uow } = await setup({ startIngestion: false });
-    const caseFileId = await upload(lawyer, await fixturePdf(Array.from({ length: 250 }, () => "scanned")), 250);
+    const caseFileId = await upload(lawyer, await fixturePdf(scanned(250)), 250);
+    const planned: PageRange[] = [];
 
-    const ranges = await ingestion.plan(caseFileId);
-    await ingestion.plan(caseFileId);
+    await ingestion.ingest(caseFileId, reportingUnread(() => true, planned));
+    await ingestion.ingest(caseFileId, reportingUnread(() => true));
 
-    expect(ranges.map(({ first, last }) => [first, last])).toEqual([
+    expect(planned.map(({ first, last }) => [first, last])).toEqual([
       [1, 100],
       [101, 200],
       [201, 250],
     ]);
     expect(uow.state.ingestion.ranges.filter((range) => range.caseFileId === caseFileId)).toHaveLength(3);
+  });
+
+  it.each([
+    [250, [1], "Não conseguimos ler as páginas 101 a 200."],
+    [101, [1], "Não conseguimos ler a página 101."],
+    [401, [0, 2, 4], "Não conseguimos ler as páginas 1 a 100, 201 a 300 e 401."],
+  ])("fails a case file of %i pages whose ranges %j were not read with the reason %j, and gives the pages back", async (pages, unread, reason) => {
+    const { ingestion, upload, lawyer, caseFiles, metering } = await setup({ startIngestion: false });
+    const caseFileId = await upload(lawyer, await fixturePdf(scanned(pages)), pages);
+
+    await ingestion.ingest(caseFileId, reportingUnread((index) => unread.includes(index)));
+
+    expect(await caseFiles.view(lawyer, caseFileId)).toMatchObject({ status: "failed", error: reason });
+    expect(await metering.pagesLeft(lawyer)).toBe(500);
+  });
+
+  it("fails the case file with a general reason, and throws, when a runner reports every range read but one is not", async () => {
+    const { ingestion, upload, lawyer, caseFiles } = await setup({ startIngestion: false });
+    const caseFileId = await upload(lawyer, await fixturePdf(digital(2)), 2);
+
+    await expect(ingestion.ingest(caseFileId, reportingUnread(() => false))).rejects.toThrow("ranges not done");
+
+    expect(await caseFiles.view(lawyer, caseFileId)).toMatchObject({ status: "failed", error: "Não conseguimos ler este arquivo." });
   });
 });
 
@@ -142,18 +176,25 @@ describe("Ingestion.ingestRange", () => {
   it("replaces only its own range's pages and passages when it runs again", async () => {
     const { ingestion, upload, lawyer, pagesOf, passagesOf } = await setup({ startIngestion: false });
     const caseFileId = await upload(lawyer, await fixturePdf(digital(101)), 101);
-    const [first, second] = await ingestion.plan(caseFileId);
-    await ingestion.ingestRange(caseFileId, first!);
-    await ingestion.ingestRange(caseFileId, second!);
-    const before = passagesOf(caseFileId);
+    let before: ReturnType<typeof passagesOf> = [];
+    let after: ReturnType<typeof passagesOf> = [];
 
-    await ingestion.ingestRange(caseFileId, first!);
+    await ingestion.ingest(caseFileId, {
+      async run(id, [first, second]) {
+        await ingestion.ingestRange(id, first!);
+        await ingestion.ingestRange(id, second!);
+        before = passagesOf(id);
+        await ingestion.ingestRange(id, first!);
+        after = passagesOf(id);
+        return [];
+      },
+    });
 
     expect(pagesOf(caseFileId)).toHaveLength(101);
-    expect(passagesOf(caseFileId)).toHaveLength(before.length);
+    expect(after).toHaveLength(before.length);
     // The second range's passage is the very same row; the first range's were written again.
-    expect(passagesOf(caseFileId).filter((passage) => passage.page === 101)[0]).toBe(before.find((passage) => passage.page === 101));
-    expect(passagesOf(caseFileId).filter((passage) => passage.page === 1)[0]).not.toBe(before.find((passage) => passage.page === 1));
+    expect(after.filter((passage) => passage.page === 101)[0]).toBe(before.find((passage) => passage.page === 101));
+    expect(after.filter((passage) => passage.page === 1)[0]).not.toBe(before.find((passage) => passage.page === 1));
   });
 
   it("leaves no passages of a failed attempt behind when the range runs again", async () => {
@@ -165,17 +206,6 @@ describe("Ingestion.ingestRange", () => {
     expect((await caseFiles.view(lawyer, caseFileId)).status).toBe("ready");
     expect(passagesOf(caseFileId).map((passage) => passage.page)).toEqual(Array.from({ length: PAGES_PER_BATCH + 2 }, (_, i) => i + 1));
     expect(uow.state.ingestion.ranges.find((range) => range.caseFileId === caseFileId)).toMatchObject({ status: "done", attempts: 2 });
-  });
-});
-
-describe("Ingestion.map", () => {
-  it("refuses to mark the case file ready while a range is not done", async () => {
-    const { ingestion, upload, lawyer, caseFiles } = await setup({ startIngestion: false });
-    const caseFileId = await upload(lawyer, await fixturePdf(digital(2)), 2);
-    await ingestion.plan(caseFileId);
-
-    await expect(ingestion.map(caseFileId)).rejects.toThrow("ranges not done");
-    expect((await caseFiles.view(lawyer, caseFileId)).status).toBe("queued");
   });
 });
 
@@ -199,22 +229,33 @@ describe("Ingestion failures", () => {
     expect((await caseFiles.view(lawyer, caseFileId)).status).toBe("ready");
   });
 
-  it("fails only once and gives the pages back only once when fail is called again", async () => {
+  it("reports every range that failed, not only the first", async () => {
+    // Every call fails, so both ranges fail on every attempt.
+    const { caseFiles, lawyer, ingest } = await setup({ embedder: new FlakyEmbedder(() => true) });
+
+    const caseFileId = await ingest(digital(101));
+
+    expect(await caseFiles.view(lawyer, caseFileId)).toMatchObject({ status: "failed", error: "Não conseguimos ler as páginas 1 a 100 e 101." });
+  });
+
+  it("keeps the first reason and gives the pages back only once when it gives up after failing", async () => {
     const { ingestion, caseFiles, metering, lawyer, upload } = await setup({ startIngestion: false });
     const caseFileId = await upload(lawyer, await fixturePdf(digital(2)), 2);
 
-    await ingestion.fail(caseFileId, "Não conseguimos ler as páginas 1 a 2.");
-    await ingestion.fail(caseFileId, "Outro motivo.");
+    await ingestion.ingest(caseFileId, reportingUnread(() => true));
+    await ingestion.giveUp(caseFileId);
+    await ingestion.giveUp(caseFileId);
 
     expect(await caseFiles.view(lawyer, caseFileId)).toMatchObject({ status: "failed", error: "Não conseguimos ler as páginas 1 a 2." });
     expect(await metering.pagesLeft(lawyer)).toBe(500);
   });
 
-  it.each([
-    [[[101, 200]], "Não conseguimos ler as páginas 101 a 200."],
-    [[[7, 7]], "Não conseguimos ler a página 7."],
-    [[[1, 100], [201, 300], [401, 401]], "Não conseguimos ler as páginas 1 a 100, 201 a 300 e 401."],
-  ])("words the reason for the ranges %j for the lawyer", (ranges, reason) => {
-    expect(Ingestion.unreadRangesReason(ranges.map(([first, last]) => PageRange.from(first!, last!)))).toBe(reason);
+  it("does not give up on a case file that is ready", async () => {
+    const { ingestion, caseFiles, lawyer, ingest } = await setup();
+    const caseFileId = await ingest(digital(1));
+
+    await ingestion.giveUp(caseFileId);
+
+    expect((await caseFiles.view(lawyer, caseFileId)).status).toBe("ready");
   });
 });

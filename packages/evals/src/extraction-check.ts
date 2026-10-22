@@ -48,7 +48,7 @@ class ExtractionCheck {
     await files.putPart(await caseFiles.signUploadPart(lawyer, caseFileId, 1), pdf);
     await caseFiles.finishUpload(lawyer, caseFileId);
     const started = performance.now();
-    await ingestion.ingestAll(caseFileId);
+    await ingestion.ingest(caseFileId);
     const seconds = (performance.now() - started) / 1000;
 
     const { ingestion: stored, metering: metered } = uow.state;

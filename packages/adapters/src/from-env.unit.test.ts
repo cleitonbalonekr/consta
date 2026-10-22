@@ -4,19 +4,19 @@ import { describe, expect, it } from "vitest";
 import { adaptersFromEnv, jobsFromEnv } from "./from-env";
 import { TriggerJobs } from "./trigger-jobs";
 
-const ingestAll = () => async () => {};
+const ingest = () => async () => {};
 
 describe("jobsFromEnv", () => {
   it("uses Trigger.dev with fake adapters", () => {
-    expect(jobsFromEnv({ CONSTA_ADAPTERS: "fake", TRIGGER_SECRET_KEY: "tr_dev_key" }, ingestAll)).toBeInstanceOf(TriggerJobs);
+    expect(jobsFromEnv({ CONSTA_ADAPTERS: "fake", TRIGGER_SECRET_KEY: "tr_dev_key" }, ingest)).toBeInstanceOf(TriggerJobs);
   });
 
   it("uses Trigger.dev with real adapters", () => {
-    expect(jobsFromEnv({ CONSTA_ADAPTERS: "real", TRIGGER_SECRET_KEY: "tr_prod_key" }, ingestAll)).toBeInstanceOf(TriggerJobs);
+    expect(jobsFromEnv({ CONSTA_ADAPTERS: "real", TRIGGER_SECRET_KEY: "tr_prod_key" }, ingest)).toBeInstanceOf(TriggerJobs);
   });
 
   it("needs the Trigger.dev key, also with fake adapters", () => {
-    expect(() => jobsFromEnv({ CONSTA_ADAPTERS: "fake" }, ingestAll)).toThrow("Missing environment variable TRIGGER_SECRET_KEY.");
+    expect(() => jobsFromEnv({ CONSTA_ADAPTERS: "fake" }, ingest)).toThrow("Missing environment variable TRIGGER_SECRET_KEY.");
   });
 
   it("runs ingestion in this process with CONSTA_JOBS=inline, without a key", async () => {
