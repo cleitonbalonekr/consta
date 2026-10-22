@@ -37,7 +37,7 @@ class ExtractionCheck {
     const uow = new InMemoryUnitOfWork();
     const files = new InMemoryFileStore();
     const metering = new Metering({ uow });
-    const ingestion = new Ingestion({ uow, files, embedder: this.embedder, metering, lifecycle: new CaseFileLifecycle({ uow }) });
+    const ingestion = new Ingestion({ uow, files, embedder: this.embedder, metering, lifecycle: new CaseFileLifecycle({ uow, metering }) });
     const caseFiles = new CaseFiles({ uow, files, jobs: new RecordingJobs(), metering });
     const lawyer = LawyerId("extraction-check");
     // Any case file the pilot accepts, past the Trial quota.

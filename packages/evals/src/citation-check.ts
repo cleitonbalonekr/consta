@@ -63,7 +63,7 @@ class CitationCheck {
   private async ingest(lawyer: LawyerId, embedder: VoyageEmbedder, name: string, pdf: Uint8Array) {
     const files = new InMemoryFileStore();
     const caseFiles = new CaseFiles({ uow: this.uow, files, jobs: new RecordingJobs(), metering: this.metering });
-    const ingestion = new Ingestion({ uow: this.uow, files, embedder, metering: this.metering, lifecycle: new CaseFileLifecycle({ uow: this.uow }) });
+    const ingestion = new Ingestion({ uow: this.uow, files, embedder, metering: this.metering, lifecycle: new CaseFileLifecycle({ uow: this.uow, metering: this.metering }) });
     // The upload recounts the pages, so the count given here only has to pass the quota.
     const { caseFileId } = await caseFiles.startUpload(lawyer, { name, bytes: pdf.length, pages: 1 });
     await files.putPart(await caseFiles.signUploadPart(lawyer, caseFileId, 1), pdf);

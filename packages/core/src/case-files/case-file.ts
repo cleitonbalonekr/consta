@@ -36,6 +36,12 @@ const NEXT_STATUSES: Record<CaseFileStatus, readonly CaseFileStatus[]> = {
   deleting: [],
 };
 
+/** The statuses ingestion moves a case file through, in order. */
+const INGESTION_PATH: readonly CaseFileStatus[] = ["queued", "processing", "mapping", "ready"];
+
+/** The statuses on the way to ready or failed, while the lawyer waits. */
+const INGESTING: readonly CaseFileStatus[] = ["uploading", "queued", "processing", "mapping"];
+
 /**
  * One uploaded case file and its status lifecycle (ADR-0007). Only its methods
  * change the status; each throws InvalidStatus for a move the lifecycle does not show.
@@ -131,6 +137,19 @@ export class CaseFile {
 
   startDeleting() {
     this.moveTo("deleting");
+  }
+
+  /** Whether the case file is still on its way to ready or failed. */
+  get ingesting(): boolean {
+    return INGESTING.includes(this.props.status);
+  }
+
+  /** Whether ingestion already took the case file to `status`, or past it on the way to ready. */
+  reached(status: CaseFileStatus): boolean {
+    if (this.props.status === status) return true;
+    const at = INGESTION_PATH.indexOf(this.props.status);
+    const target = INGESTION_PATH.indexOf(status);
+    return at >= 0 && target >= 0 && at > target;
   }
 
   private moveTo(next: CaseFileStatus) {

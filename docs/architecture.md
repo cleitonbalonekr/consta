@@ -56,8 +56,8 @@ The web app's screens only call Case files and Answering; its sign-in calls Mete
 
 | Module | What callers know (interface) | What it hides (implementation) | Called by |
 | --- | --- | --- | --- |
-| **Case files** | Start and finish an upload, view, list, get a read URL, remove. `CaseFileLifecycle`: the status changes of ingestion | Status lifecycle, page-quota check, multipart upload bookkeeping, ownership checks, ordered deletion of every derived row and the stored PDF | `apps/web`; `CaseFileLifecycle` by Ingestion |
-| **Ingestion** | `ingest` runs it all, with a `RangeRunner` that runs the ranges in-process or as Trigger.dev tasks; `ingestRange` for such a runner, `giveUp` when a run dies. Every method is idempotent | The step order, attempts per step and per range, the failure reason, the pages given back on failure, page classification, text and block extraction of digital pages (scanned pages are marked as not read, ADR-0010), folha detection, passage splitting inside a page, embedding, document map windowing and merging, facts, progress, the ready email | `apps/jobs`, the inline `Jobs` adapter |
+| **Case files** | Start and finish an upload, view, list, get a read URL, remove; a view says whether the case file is still ingesting. `CaseFileLifecycle`: the status changes of ingestion, each safe to run again, and failing, which gives the pages back | Status lifecycle, which statuses count as ingesting, retry-safety of every ingestion step, page-quota check, the pages given back on failure, multipart upload bookkeeping, ownership checks, ordered deletion of every derived row and the stored PDF | `apps/web`; `CaseFileLifecycle` by Ingestion |
+| **Ingestion** | `ingest` runs it all, with a `RangeRunner` that runs the ranges in-process or as Trigger.dev tasks; `ingestRange` for such a runner, `giveUp` when a run dies. Every method is idempotent | The step order, attempts per step and per range, the failure reason, page classification, text and block extraction of digital pages (scanned pages are marked as not read, ADR-0010), folha detection, passage splitting inside a page, embedding, document map windowing and merging, facts, progress, the ready email | `apps/jobs`, the inline `Jobs` adapter |
 | **Answering** | `ask` returns a stream of statements, each with at least one citation | Scope handling, hybrid search and reranking, source blocks per page, token budget, prompt caching, citation-to-page resolution, dropping uncited statements, saving the question, metering | `apps/web` |
 | **Metering** | `record` usage, `startTrial` and `pagesLeft` for a lawyer, `chargePages` and `givePagesBack` for a case file | Cost per provider and unit, the monthly page-quota window, plan limits | The other three modules, the web app's sign-in, the operator page |
 
@@ -122,14 +122,19 @@ export class Ingestion {
 }
 
 // packages/core/src/case-files/lifecycle.ts
-/** Each method locks the case file row, joins the caller's run, and does nothing when the status is already its target. */
+/**
+ * Each method locks the case file row and joins the caller's run. A step the case file is
+ * already at, or past on the way to ready, does nothing.
+ */
 export class CaseFileLifecycle {
-  constructor(deps: { uow: UnitOfWork });
+  constructor(deps: { uow: UnitOfWork; metering: Metering });
   target(caseFileId: CaseFileId): Promise<IngestionTarget>; // lawyer, storage key, size, page count, status
   startProcessing(caseFileId: CaseFileId): Promise<void>;
   recordPagesRead(caseFileId: CaseFileId, pages: number): Promise<void>; // only goes up
   startMapping(caseFileId: CaseFileId): Promise<void>;
-  markReady(caseFileId: CaseFileId, unreadPages: UnreadPages): Promise<void>;
+  /** `scannedPages`: the numbers of the pages not read, in order. */
+  markReady(caseFileId: CaseFileId, scannedPages: number[]): Promise<void>;
+  /** Gives the pages back to the quota. A ready or failed case file stays as it is. */
   fail(caseFileId: CaseFileId, reason: string): Promise<void>;
 }
 ```

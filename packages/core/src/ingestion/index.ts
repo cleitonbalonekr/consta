@@ -1,4 +1,4 @@
-import type { CaseFileLifecycle, IngestionTarget, UnreadPages } from "../case-files";
+import type { CaseFileLifecycle, IngestionTarget } from "../case-files";
 import type { Metering } from "../metering";
 import type { Embedder, FileStore, UnitOfWork } from "../ports";
 import { PageRange } from "../shared";
@@ -91,7 +91,7 @@ export class Ingestion {
     try {
       const planned = await this.attempt(STEP_ATTEMPTS, () => this.plan(caseFileId));
       const unread = await ranges.run(caseFileId, planned);
-      if (unread.length > 0) return await this.fail(caseFileId, Ingestion.unreadRangesReason(unread));
+      if (unread.length > 0) return await this.lifecycle.fail(caseFileId, Ingestion.unreadRangesReason(unread));
       await this.attempt(STEP_ATTEMPTS, () => this.map(caseFileId));
     } catch (error) {
       await this.giveUp(caseFileId);
@@ -116,8 +116,7 @@ export class Ingestion {
 
   /** Fails the case file with a general reason and gives its pages back, unless it is ready or already failed. */
   async giveUp(caseFileId: CaseFileId): Promise<void> {
-    if ((await this.lifecycle.target(caseFileId)).status === "ready") return;
-    await this.fail(caseFileId, UNREADABLE_FILE);
+    await this.lifecycle.fail(caseFileId, UNREADABLE_FILE);
   }
 
   /** Splits the case file into ranges of PAGES_PER_RANGE pages and records them. */
@@ -137,22 +136,13 @@ export class Ingestion {
    * Throws when a range is not done.
    */
   private async map(caseFileId: CaseFileId): Promise<void> {
-    if ((await this.lifecycle.target(caseFileId)).status === "ready") return;
     const scanned = await this.uow.run(async (repos) => {
       const unfinished = await repos.ingestion.countUnfinishedRanges(caseFileId);
       if (unfinished > 0) throw new Error(`Case file ${caseFileId} has ${unfinished} ranges not done.`);
       await this.lifecycle.startMapping(caseFileId);
       return repos.ingestion.scannedPages(caseFileId);
     });
-    await this.lifecycle.markReady(caseFileId, toRanges(scanned));
-  }
-
-  /** Marks the case file failed with a reason the lawyer can read, and gives its pages back to the quota. */
-  private async fail(caseFileId: CaseFileId, reason: string): Promise<void> {
-    await this.uow.run(async () => {
-      await this.lifecycle.fail(caseFileId, reason);
-      await this.metering.givePagesBack(caseFileId);
-    });
+    await this.lifecycle.markReady(caseFileId, scanned);
   }
 
   /** The failure reason a lawyer reads when ranges could not be read after every attempt. */
@@ -198,15 +188,4 @@ export class Ingestion {
     if (vectors.length !== texts.length) throw new Error(`The embedder returned ${vectors.length} vectors for ${texts.length} passages.`);
     return vectors;
   }
-}
-
-/** [3, 4, 5, 9] as 3 to 5 and 9 to 9. */
-function toRanges(pages: number[]): UnreadPages {
-  const ranges: UnreadPages = [];
-  for (const page of pages) {
-    const last = ranges.at(-1);
-    if (last && last.last + 1 === page) last.last = page;
-    else ranges.push({ first: page, last: page });
-  }
-  return ranges;
 }

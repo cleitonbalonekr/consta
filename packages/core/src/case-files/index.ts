@@ -27,6 +27,8 @@ export type CaseFileSummary = {
   id: CaseFileId;
   name: string;
   status: CaseFileStatus;
+  /** True while the case file is on its way to ready or failed, so the page should refresh. */
+  ingesting: boolean;
   pageCount: number;
   pagesDone: number;
   createdAt: Date;
@@ -183,7 +185,7 @@ export class CaseFiles {
 
 function toSummary(caseFile: CaseFile): CaseFileSummary {
   const { id, name, status, pageCount, pagesDone, createdAt } = caseFile.snapshot();
-  return { id, name, status, pageCount, pagesDone, createdAt };
+  return { id, name, status, ingesting: caseFile.ingesting, pageCount, pagesDone, createdAt };
 }
 
 /** The document map arrives with ticket 09; until then it is empty. */

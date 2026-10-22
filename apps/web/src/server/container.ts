@@ -33,7 +33,7 @@ function buildContainer(): Container {
   const metering = new Metering({ uow });
   let ingestion: Ingestion | undefined;
   const jobs = jobsFromEnv(env, () => {
-    ingestion ??= new Ingestion({ uow, files: adapters.files, embedder: adapters.embedder, metering, lifecycle: new CaseFileLifecycle({ uow }) });
+    ingestion ??= new Ingestion({ uow, files: adapters.files, embedder: adapters.embedder, metering, lifecycle: new CaseFileLifecycle({ uow, metering }) });
     return (caseFileId) => ingestion!.ingest(caseFileId);
   });
 

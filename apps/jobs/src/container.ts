@@ -10,7 +10,7 @@ export function container() {
     const uow = new DrizzleUnitOfWork(createDb(requiredEnv("DATABASE_URL")));
     const { files, embedder } = adaptersFromEnv(process.env);
     const metering = new Metering({ uow });
-    const lifecycle = new CaseFileLifecycle({ uow });
+    const lifecycle = new CaseFileLifecycle({ uow, metering });
     ingestion = new Ingestion({ uow, files, embedder, metering, lifecycle });
   }
   return { ingestion };

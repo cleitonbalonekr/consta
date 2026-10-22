@@ -75,7 +75,7 @@ export function ingestionOn(uow: UnitOfWork, options: { embedder?: Embedder; sta
   const { embedder = new FakeEmbedder(), startIngestion = true } = options;
   const files = new InMemoryFileStore();
   const metering = new Metering({ uow });
-  const lifecycle = new CaseFileLifecycle({ uow });
+  const lifecycle = new CaseFileLifecycle({ uow, metering });
   const ingestion = new Ingestion({ uow, files, embedder, metering, lifecycle });
   const jobs = new InlineJobs(() => (caseFileId) => ingestion.ingest(caseFileId));
   const caseFiles = new CaseFiles({ uow, files, jobs: startIngestion ? jobs : new RecordingJobs(), metering });
