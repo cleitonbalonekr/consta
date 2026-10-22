@@ -26,6 +26,10 @@ async function setup() {
         .orderBy(asc(schema.passage.page));
       return rows.map((row) => row.page);
     },
+    facts: async (caseFileId: CaseFileId) => {
+      const rows = await db.select().from(schema.fact).where(eq(schema.fact.caseFileId, caseFileId)).orderBy(asc(schema.fact.page));
+      return rows.map(({ kind, value, normalizedValue, context, page }) => ({ kind, value, normalizedValue, context, page }));
+    },
     questions: async (caseFileId: CaseFileId) => {
       const rows = await db.select().from(schema.question).where(eq(schema.question.caseFileId, caseFileId)).orderBy(asc(schema.question.createdAt));
       return rows.map(({ text, scope, answer, droppedStatements }) => ({ text, scope, answer, dropped: droppedStatements }));

@@ -1,0 +1,2 @@
+ALTER TABLE "fact" ADD CONSTRAINT "fact_case_file_id_page_page_case_file_id_number_fk" FOREIGN KEY ("case_file_id","page") REFERENCES "public"."page"("case_file_id","number") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "peca" ADD CONSTRAINT "peca_pages_check" CHECK ("peca"."first_page" <= "peca"."last_page");

@@ -1,39 +1,47 @@
 "use client";
 
-import type { Citation, Folhas } from "@consta/core";
+import type { Citation, Folhas, PecaView } from "@consta/core";
 import type { PDFDocumentProxy } from "pdfjs-dist";
 import { useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { ChevronLeft, ChevronRight, Quote, X, ZoomIn, ZoomOut } from "lucide-react";
 import { openPdf } from "@/lib/pdf";
 import { citationLabel } from "./answer";
+import { pageRange, pecaTypeLabel } from "./document-map";
 
 /** Page widths, as multiples of the width that fits the viewer. */
 const ZOOMS = [1, 1.25, 1.5, 2, 3] as const;
+
+/**
+ * What the viewer opens: a citation, at its page with its boxes marked there, or a peça of
+ * the document map, at its first page.
+ */
+export type ViewerTarget = { citation: Citation } | { peca: PecaView };
 
 type PdfViewerProps = {
   pdfUrl: string;
   /** The folha of each page that has one, shown beside the page number. */
   folhas: Folhas;
-  /** The citation to show: the viewer opens at its page and marks its boxes there. */
-  citation: Citation;
+  target: ViewerTarget;
   onClose: () => void;
 };
 
 /** Shows one page of the case file at a time, with the cited text marked on the cited page. */
-export function PdfViewer({ pdfUrl, folhas, citation, onClose }: PdfViewerProps) {
+export function PdfViewer({ pdfUrl, folhas, target, onClose }: PdfViewerProps) {
   const pdf = usePdf(pdfUrl);
-  const [page, setPage] = useState(citation.page);
+  const citation = "citation" in target ? target.citation : null;
+  const firstPage = "citation" in target ? target.citation.page : target.peca.firstPage;
+  const [page, setPage] = useState(firstPage);
   const [zoomStep, setZoomStep] = useState(0);
-  const [shownCitation, setShownCitation] = useState(citation);
-  // Opening another citation moves the viewer to its page.
-  if (shownCitation !== citation) {
-    setShownCitation(citation);
-    setPage(citation.page);
+  const [shownTarget, setShownTarget] = useState(target);
+  // Opening another citation or peça moves the viewer to its page.
+  if (shownTarget !== target) {
+    setShownTarget(target);
+    setPage(firstPage);
   }
 
   const pageCount = pdf && pdf !== "failed" ? pdf.numPages : null;
-  const onCitedPage = page === citation.page;
+  const marks = citation && page === citation.page ? citation.boxes : [];
   const folha = folhas[page];
   // zoomStep stays inside ZOOMS: the zoom buttons stop at either end.
   const zoom = ZOOMS[zoomStep]!;
@@ -66,27 +74,44 @@ export function PdfViewer({ pdfUrl, folhas, citation, onClose }: PdfViewerProps)
           </IconButton>
         </div>
       </header>
-      <blockquote id="viewer-quote" className="flex gap-3 border-b border-line bg-surface px-4 py-3">
-        <Quote className="mt-0.5 size-4 shrink-0 text-accent-text" aria-hidden />
-        <span className="text-sm leading-relaxed text-foreground">
-          <span className="mr-2 rounded-md bg-accent-soft px-1.5 py-0.5 text-[0.72rem] font-semibold tabular-nums text-accent-text">
-            {citationLabel(citation)}
-          </span>
-          {citation.quote}
-        </span>
-      </blockquote>
+      {"citation" in target ? <CitedQuote citation={target.citation} /> : <OpenedPeca peca={target.peca} />}
       <div className="flex-1 overflow-auto p-4">
         {pdf === "failed" ? (
           <p id="viewer-error" role="alert" className="p-4 text-sm text-danger">
             Não conseguimos abrir os autos. Feche e tente de novo.
           </p>
         ) : pdf ? (
-          <PdfPage key={page} pdf={pdf} page={page} zoom={zoom} marks={onCitedPage ? citation.boxes : []} />
+          <PdfPage key={page} pdf={pdf} page={page} zoom={zoom} marks={marks} />
         ) : (
           <div className="skeleton mx-auto aspect-[595/842] w-full rounded-sm" aria-label="Abrindo os autos" />
         )}
       </div>
     </section>
+  );
+}
+
+function CitedQuote({ citation }: { citation: Citation }) {
+  return (
+    <blockquote id="viewer-quote" className="flex gap-3 border-b border-line bg-surface px-4 py-3">
+      <Quote className="mt-0.5 size-4 shrink-0 text-accent-text" aria-hidden />
+      <span className="text-sm leading-relaxed text-foreground">
+        <span className="mr-2 rounded-md bg-accent-soft px-1.5 py-0.5 text-[0.72rem] font-semibold tabular-nums text-accent-text">
+          {citationLabel(citation)}
+        </span>
+        {citation.quote}
+      </span>
+    </blockquote>
+  );
+}
+
+function OpenedPeca({ peca }: { peca: PecaView }) {
+  return (
+    <div id="viewer-peca" className="flex items-baseline gap-2 border-b border-line bg-surface px-4 py-3">
+      <span className="shrink-0 rounded-md bg-accent-soft px-1.5 py-0.5 text-[0.72rem] font-semibold tabular-nums text-accent-text">
+        {`${pecaTypeLabel(peca.type)} · ${pageRange(peca)}`}
+      </span>
+      <span className="truncate text-sm font-medium text-foreground">{peca.title}</span>
+    </div>
   );
 }
 

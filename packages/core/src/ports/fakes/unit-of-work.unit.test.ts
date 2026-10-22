@@ -27,6 +27,11 @@ ingestionRepositoryContract(async () => {
     newLawyer,
     passagePages: async (caseFileId) =>
       uow.state.ingestion.passages.filter((passage) => passage.caseFileId === caseFileId).map((passage) => passage.page).sort((a, b) => a - b),
+    facts: async (caseFileId) =>
+      uow.state.ingestion.facts
+        .filter((fact) => fact.caseFileId === caseFileId)
+        .sort((a, b) => a.page - b.page)
+        .map(({ caseFileId: _, ...fact }) => fact),
   };
 });
 

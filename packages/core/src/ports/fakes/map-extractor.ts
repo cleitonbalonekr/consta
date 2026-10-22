@@ -1,3 +1,4 @@
+import type { PecaType } from "../../shared";
 import type { FactDraft, MapExtractor, PecaDraft } from "../map-extractor";
 
 type Script = (input: { pages: { page: number; text: string }[]; openPeca: PecaDraft | null }) => {
@@ -5,28 +6,37 @@ type Script = (input: { pages: { page: number; text: string }[]; openPeca: PecaD
   facts: FactDraft[];
 };
 
-/** Returns scripted peças and facts. By default, each window is one "outro" peça with no facts. */
-export class FakeMapExtractor implements MapExtractor {
-  constructor(
-    private readonly script: Script = ({ pages }) => ({
-      pecas: [
-        {
-          type: "outro",
-          title: "Peça falsa",
-          date: null,
-          firstPage: pages[0]?.page ?? 1,
-          lastPage: pages.at(-1)?.page ?? 1,
-          summary: "Resumo falso.",
-        },
-      ],
-      facts: [],
-    }),
-  ) {}
+/** The peças of a lawsuit in the order they usually come, for the default map. */
+const LAWSUIT: Array<{ type: PecaType; title: string }> = [
+  { type: "peticao-inicial", title: "Petição inicial" },
+  { type: "contestacao", title: "Contestação" },
+  { type: "sentenca", title: "Sentença" },
+  { type: "recurso", title: "Apelação" },
+  { type: "acordao", title: "Acórdão" },
+];
 
+/** Each window as peças of two pages, of the next type in LAWSUIT, so fake mode shows a document map. */
+const twoPagePecas: Script = ({ pages }) => {
+  const pecas: PecaDraft[] = [];
+  for (let i = 0; i < pages.length; i += 2) {
+    const { type, title } = LAWSUIT[(i / 2) % LAWSUIT.length]!;
+    const firstPage = pages[i]!.page;
+    const lastPage = pages[Math.min(i + 1, pages.length - 1)]!.page;
+    pecas.push({ type, title, date: null, firstPage, lastPage, summary: `Resumo falso das páginas ${firstPage} a ${lastPage}.` });
+  }
+  return { pecas, facts: [] };
+};
+
+/** Returns scripted peças and facts; by default, peças of two pages and no facts. */
+export class FakeMapExtractor implements MapExtractor {
+  constructor(private readonly script: Script = twoPagePecas) {}
+
+  /** Counts the words it read as tokens, like the fake citing model. */
   async extract(input: { pages: { page: number; text: string }[]; openPeca: PecaDraft | null }) {
+    const units = input.pages.reduce((total, page) => total + page.text.split(/\s+/).filter(Boolean).length, 0);
     return {
       ...this.script(input),
-      usage: [{ kind: "extract" as const, provider: "fake", model: "fake-map-extractor", units: 0, unit: "token" as const, costUsd: 0 }],
+      usage: [{ kind: "extract" as const, provider: "fake", model: "fake-map-extractor", units, unit: "token" as const, costUsd: 0 }],
     };
   }
 }

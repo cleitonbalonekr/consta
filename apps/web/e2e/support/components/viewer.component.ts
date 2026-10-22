@@ -15,6 +15,11 @@ export class ViewerComponent extends BasePage {
     return this.byId("viewer-next-page");
   }
 
+  /** The peça of the document map the viewer was opened at. */
+  get openedPeca() {
+    return this.byId("viewer-peca");
+  }
+
   get marks() {
     return this.byIdPrefix("viewer-mark-");
   }

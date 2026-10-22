@@ -49,14 +49,15 @@ describe("AdaptersFromEnv with real adapters", () => {
   it("builds every adapter, with no OCR key, because the MVP does not read scanned pages (ADR-0010)", () => {
     const adapters = new AdaptersFromEnv(REAL);
 
-    expect(() => [adapters.files, adapters.embedder, adapters.reranker, adapters.model, adapters.mailer]).not.toThrow();
+    expect(() => [adapters.files, adapters.embedder, adapters.reranker, adapters.model, adapters.mapExtractor, adapters.mailer]).not.toThrow();
   });
 
-  it("asks only for the settings of the ports a runtime uses, as the task runtime does", () => {
+  it("asks only for the settings of the ports a runtime uses", () => {
     const adapters = new AdaptersFromEnv({ ...REAL, ANTHROPIC_API_KEY: undefined, RESEND_API_KEY: undefined });
 
     expect(() => [adapters.databaseUrl, adapters.files, adapters.embedder]).not.toThrow();
     expect(() => adapters.model).toThrow("Missing environment variable ANTHROPIC_API_KEY.");
+    expect(() => adapters.mapExtractor).toThrow("Missing environment variable ANTHROPIC_API_KEY.");
     expect(() => adapters.mailer).toThrow("Missing environment variable RESEND_API_KEY.");
   });
 

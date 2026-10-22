@@ -6,7 +6,8 @@
   "scripts": {
     "typecheck": "tsc",
     "extraction-check": "tsx src/extraction-check.ts",
-    "citation-check": "tsx src/citation-check.ts"
+    "citation-check": "tsx src/citation-check.ts",
+    "map-check": "tsx src/map-check.ts"
   },
   "devDependencies": {
     "@types/node": "^20.19.43",

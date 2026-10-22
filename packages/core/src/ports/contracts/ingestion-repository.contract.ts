@@ -3,6 +3,7 @@ import { CaseFile, FileSize, PageCount } from "../../case-files";
 import type { PageRecord, PassageRecord } from "../../ingestion";
 import { CaseFileId, PageRange } from "../../shared";
 import type { LawyerId } from "../../shared";
+import type { FactDraft, PecaDraft } from "../map-extractor";
 import type { UnitOfWork } from "../unit-of-work";
 
 export type IngestionRepositorySetup = () => Promise<{
@@ -10,6 +11,8 @@ export type IngestionRepositorySetup = () => Promise<{
   newLawyer: () => Promise<LawyerId>;
   /** The page of every stored passage of the case file, in order. No repository method reads passages yet. */
   passagePages: (caseFileId: CaseFileId) => Promise<number[]>;
+  /** The stored facts of the case file, in page order. No repository method reads facts yet. */
+  facts: (caseFileId: CaseFileId) => Promise<FactDraft[]>;
 }>;
 
 /** The dimensions of the passage column in the schema. */
@@ -22,6 +25,14 @@ function digitalPage(number: number): PageRecord {
 
 function scannedPage(number: number): PageRecord {
   return { number, folha: null, source: "scanned", text: "", blocks: [] };
+}
+
+function peca(firstPage: number, lastPage: number): PecaDraft {
+  return { type: "sentenca", title: `Sentença ${firstPage}`, date: "2026-05-04", firstPage, lastPage, summary: "Julgou procedente." };
+}
+
+function fact(page: number): FactDraft {
+  return { kind: "amount", value: "R$ 10.000,00", normalizedValue: "10000.00", context: `condenação na página ${page}`, page };
 }
 
 function passageOn(page: number): PassageRecord {
@@ -94,6 +105,48 @@ export function ingestionRepositoryContract(setup: IngestionRepositorySetup) {
       expect(await uow.run((repos) => repos.ingestion.countPages(caseFileId))).toBe(2);
       expect(await passagePages(caseFileId)).toEqual([100, 201]);
       expect(await other.passagePages(other.caseFileId)).toEqual([150]);
+    });
+
+    it("reads the length of each page's text, and the text of the pages of a range, in page order", async () => {
+      const { uow, caseFileId } = await withCaseFile();
+      await uow.run((repos) => repos.ingestion.savePages(caseFileId, [digitalPage(3), scannedPage(2), digitalPage(1)], []));
+
+      expect(await uow.run((repos) => repos.ingestion.pageLengths(caseFileId))).toEqual([
+        { page: 1, chars: "Página 1".length },
+        { page: 2, chars: 0 },
+        { page: 3, chars: "Página 3".length },
+      ]);
+      expect(await uow.run((repos) => repos.ingestion.pageTexts(caseFileId, PageRange.from(2, 3)))).toEqual([
+        { page: 2, text: "" },
+        { page: 3, text: "Página 3" },
+      ]);
+    });
+
+    it("replaces the document map and facts of the case file, and keeps those of every other", async () => {
+      const { uow, caseFileId, facts } = await withCaseFile();
+      const other = await withCaseFile();
+      await uow.run((repos) => repos.ingestion.savePages(caseFileId, [digitalPage(1), digitalPage(2), digitalPage(3)], []));
+      await other.uow.run((repos) => repos.ingestion.savePages(other.caseFileId, [digitalPage(1)], []));
+      await other.uow.run((repos) => repos.ingestion.replaceDocumentMap(other.caseFileId, [peca(1, 1)], [fact(1)]));
+      await uow.run((repos) => repos.ingestion.replaceDocumentMap(caseFileId, [peca(1, 3)], [fact(1)]));
+
+      await uow.run((repos) => repos.ingestion.replaceDocumentMap(caseFileId, [peca(3, 3), peca(1, 2)], [fact(3), fact(2)]));
+
+      const documentMap = await uow.run((repos) => repos.caseFiles.documentMapOf(caseFileId));
+      expect(documentMap).toEqual([
+        { id: expect.any(String), ...peca(1, 2) },
+        { id: expect.any(String), ...peca(3, 3) },
+      ]);
+      expect(await facts(caseFileId)).toEqual([fact(2), fact(3)]);
+      expect(await other.uow.run((repos) => repos.caseFiles.documentMapOf(other.caseFileId))).toHaveLength(1);
+      expect(await other.facts(other.caseFileId)).toEqual([fact(1)]);
+    });
+
+    it("refuses a fact on a page that is not stored", async () => {
+      const { uow, caseFileId } = await withCaseFile();
+      await uow.run((repos) => repos.ingestion.savePages(caseFileId, [digitalPage(1)], []));
+
+      await expect(uow.run((repos) => repos.ingestion.replaceDocumentMap(caseFileId, [peca(1, 1)], [fact(2)]))).rejects.toThrow();
     });
   });
 }

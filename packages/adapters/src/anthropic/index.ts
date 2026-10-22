@@ -1,25 +1,13 @@
 import Anthropic from "@anthropic-ai/sdk";
-import { NotImplemented } from "@consta/core";
-import type { CitingModel, CitingModelEvent, MapExtractor, Source, Usage } from "@consta/core/ports";
+import type { CitingModel, CitingModelEvent, Source, Usage } from "@consta/core/ports";
+import { ClaudePrices } from "./prices";
+
+export { ClaudeMapExtractor } from "./map-extractor";
 
 export type AnthropicConfig = { apiKey: string };
 
 /** A whole-file answer is about 1,000 tokens (prd-mvp.md, costs); this cap stops a runaway answer at four times that. */
 const MAX_TOKENS = 4_000;
-
-/**
- * List prices in USD per million tokens. The requested models, and the models the
- * server-side fallback answers on for them, each at its own rate. A cache write costs
- * 1.25 times an input token.
- */
-const USD_PER_MILLION_TOKENS: Record<string, { input: number; output: number; cacheRead: number }> = {
-  "claude-sonnet-5-5": { input: 2, output: 10, cacheRead: 0.2 },
-  "claude-sonnet-5": { input: 2, output: 10, cacheRead: 0.2 },
-  "claude-opus-5-5": { input: 4, output: 20, cacheRead: 0.2 },
-  "claude-opus-5": { input: 5, output: 25, cacheRead: 0.5 },
-  "claude-opus-4-8": { input: 5, output: 25, cacheRead: 0.5 },
-};
-const CACHE_WRITE = 1.25;
 
 /**
  * Phase 2: Claude with native citations. Each Source becomes one custom-content document
@@ -35,7 +23,7 @@ export class ClaudeCitingModel implements CitingModel {
   constructor({ apiKey, model }: AnthropicConfig & { model: string }) {
     this.client = new Anthropic({ apiKey });
     this.model = model;
-    this.price(model);
+    ClaudePrices.of(model);
   }
 
   async *answer({ instructions, sources, question, cacheSources }: { instructions: string; sources: Source[]; question: string; cacheSources: boolean }): AsyncIterable<CitingModelEvent> {
@@ -82,27 +70,7 @@ export class ClaudeCitingModel implements CitingModel {
   }
 
   private usage(model: string, usage: Anthropic.Beta.BetaUsage): Usage {
-    const written = usage.cache_creation_input_tokens ?? 0;
-    const read = usage.cache_read_input_tokens ?? 0;
-    const price = this.price(model);
-    const inputUsd = (usage.input_tokens + written * CACHE_WRITE) * price.input + read * price.cacheRead;
-    const costUsd = (inputUsd + usage.output_tokens * price.output) / 1_000_000;
-    const units = usage.input_tokens + written + read + usage.output_tokens;
+    const { units, costUsd } = ClaudePrices.cost(model, usage);
     return { kind: "answer", provider: "anthropic", model, units, unit: "token", costUsd };
   }
-
-  private price(model: string) {
-    const price = USD_PER_MILLION_TOKENS[model];
-    if (!price) throw new Error(`No price for the Claude model ${model}.`);
-    return price;
-  }
-}
-
-/** Phase 3: document map and facts from a window of pages, with structured output. */
-export function createClaudeMapExtractor(_config: AnthropicConfig & { model: string }): MapExtractor {
-  return {
-    async extract() {
-      throw new NotImplemented("ClaudeMapExtractor.extract");
-    },
-  };
 }

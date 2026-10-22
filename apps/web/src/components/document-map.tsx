@@ -16,6 +16,10 @@ const PECA_TYPE_LABELS: Record<PecaType, string> = {
   outro: "Outro",
 };
 
+export function pecaTypeLabel(type: PecaType) {
+  return PECA_TYPE_LABELS[type];
+}
+
 // One color per family of peça: what the parties write, what the court decides, the evidence, the rest.
 const PARTIES = "bg-accent-soft text-accent-text";
 const COURT = "bg-warning-soft text-warning";
@@ -55,6 +59,13 @@ type DocumentMapProps = {
 
 /** The peças of a case file in order, as a timeline. Choosing one scopes the next question to it. */
 export function DocumentMap({ documentMap, selectedPecaId, onSelect }: DocumentMapProps) {
+  if (documentMap.length === 0) {
+    return (
+      <p id="document-map-empty" className="px-2 text-sm text-muted">
+        Não encontramos peças nas páginas lidas.
+      </p>
+    );
+  }
   return (
     <ol id="document-map" className="relative flex flex-col gap-1 before:absolute before:top-5 before:bottom-5 before:left-[0.9rem] before:w-px before:bg-line before:content-['']">
       {documentMap.map((peca) => {
@@ -77,7 +88,7 @@ export function DocumentMap({ documentMap, selectedPecaId, onSelect }: DocumentM
               <span className="min-w-0 flex-1">
                 <span className="flex items-center justify-between gap-2">
                   <span className={`rounded-md px-1.5 py-0.5 text-[0.65rem] font-semibold tracking-wide uppercase ${PECA_TYPE_TONES[peca.type]}`}>
-                    {PECA_TYPE_LABELS[peca.type]}
+                    {pecaTypeLabel(peca.type)}
                   </span>
                   <span className="shrink-0 font-mono text-[0.7rem] tabular-nums text-subtle">{pageRange(peca)}</span>
                 </span>

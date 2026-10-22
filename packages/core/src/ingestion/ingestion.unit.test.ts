@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { Embedder } from "../ports";
-import { FakeEmbedder, InMemoryUnitOfWork } from "../ports/fakes";
+import type { Embedder, FactDraft, MapExtractor, PecaDraft } from "../ports";
+import { FakeEmbedder, FakeMapExtractor, InMemoryUnitOfWork } from "../ports/fakes";
 import { LawyerId } from "../shared";
 import type { CaseFileId, PageRange } from "../shared";
 import { PAGES_PER_BATCH, RANGE_ATTEMPTS } from "./index";
@@ -40,6 +40,33 @@ async function setup(options: Parameters<typeof ingestionOn>[1] = {}) {
 
 const digital = (pages: number): FixturePage[] => Array.from({ length: pages }, () => "digital");
 const scanned = (pages: number): FixturePage[] => Array.from({ length: pages }, () => "scanned");
+
+type MapInput = Parameters<MapExtractor["extract"]>[0];
+
+/** A fake extractor that records each window it reads and answers with `read`. */
+function recordingExtractor(read: (input: MapInput) => { pecas: PecaDraft[]; facts: FactDraft[] }) {
+  const windows: MapInput[] = [];
+  const extractor = new FakeMapExtractor((input) => {
+    windows.push(input);
+    return read(input);
+  });
+  return { extractor, windows };
+}
+
+/** Each window is one peça, continuing the open one when there is one. */
+const onePecaPerWindow = ({ pages, openPeca }: MapInput) => ({
+  pecas: [
+    {
+      type: "peticao-inicial" as const,
+      title: "Petição inicial",
+      date: "2026-03-10",
+      firstPage: openPeca?.firstPage ?? pages[0]!.page,
+      lastPage: pages.at(-1)!.page,
+      summary: "A autora pede indenização por danos morais.",
+    },
+  ],
+  facts: [],
+});
 
 /** A runner that reads none of the ranges and reports the ones `unread` picks by position. */
 const reportingUnread = (unread: (index: number) => boolean, planned: PageRange[] = []): RangeRunner => ({
@@ -96,7 +123,7 @@ describe("Ingestion of digital pages", () => {
 
     const caseFileId = await ingest(digital(3));
 
-    expect(await caseFiles.view(lawyer, caseFileId)).toMatchObject({ status: "ready", pagesDone: 3, unreadPages: [], documentMap: [] });
+    expect(await caseFiles.view(lawyer, caseFileId)).toMatchObject({ status: "ready", pagesDone: 3, unreadPages: [] });
     expect(pagesOf(caseFileId).map(({ number, folha, source }) => ({ number, folha, source }))).toEqual([
       { number: 1, folha: "2", source: "digital" },
       { number: 2, folha: "3", source: "digital" },
@@ -124,7 +151,7 @@ describe("Ingestion of digital pages", () => {
 
     const caseFileId = await ingest(digital(PAGES_PER_BATCH + 1));
 
-    const usage = uow.state.metering.usage.filter((event) => event.caseFileId === caseFileId);
+    const usage = uow.state.metering.usage.filter((event) => event.caseFileId === caseFileId && event.kind === "embed");
     expect(usage).toHaveLength(2);
     for (const event of usage) expect(event).toMatchObject({ lawyer, kind: "embed", model: "fake-embedder" });
   });
@@ -169,6 +196,102 @@ describe("Ingestion of scanned pages", () => {
       { number: 5, folha: "6", text: "", blocks: [] },
     ]);
     expect(passagesOf(caseFileId).map((passage) => passage.page)).toEqual([1, 4]);
+  });
+});
+
+describe("Ingestion's document map", () => {
+  it("builds the document map from the pages, then marks the case file ready", async () => {
+    const { caseFiles, lawyer, ingest } = await setup({ mapExtractor: recordingExtractor(onePecaPerWindow).extractor });
+
+    const caseFileId = await ingest(digital(3));
+
+    expect(await caseFiles.view(lawyer, caseFileId)).toMatchObject({
+      status: "ready",
+      documentMap: [
+        {
+          id: expect.any(String),
+          type: "peticao-inicial",
+          title: "Petição inicial",
+          date: "2026-03-10",
+          firstPage: 1,
+          lastPage: 3,
+          summary: "A autora pede indenização por danos morais.",
+        },
+      ],
+    });
+  });
+
+  it("reads the pages in windows, and merges a peça that continues into the next window", async () => {
+    const { extractor, windows } = recordingExtractor(onePecaPerWindow);
+    const { caseFiles, lawyer, ingest } = await setup({ mapExtractor: extractor });
+
+    const caseFileId = await ingest(Array.from({ length: 30 }, () => "full"));
+
+    expect(windows.length).toBeGreaterThan(1);
+    expect(windows.flatMap((window) => window.pages.map((page) => page.page))).toEqual(Array.from({ length: 30 }, (_, i) => i + 1));
+    expect(windows[0]!.openPeca).toBeNull();
+    expect(windows[1]!.openPeca).toMatchObject({ firstPage: 1 });
+    expect((await caseFiles.view(lawyer, caseFileId)).documentMap.map((peca) => [peca.firstPage, peca.lastPage])).toEqual([[1, 30]]);
+  });
+
+  it("gives the extractor each page's text, and a scanned page with no text", async () => {
+    const { extractor, windows } = recordingExtractor(onePecaPerWindow);
+    const { ingest } = await setup({ mapExtractor: extractor });
+
+    await ingest(["digital", "scanned", "digital"]);
+
+    const [first, scannedPage, third] = windows[0]!.pages;
+    expect(first!.text).toContain(digitalLines(1)[1]);
+    expect(scannedPage).toEqual({ page: 2, text: "" });
+    expect(third!.text).toContain(digitalLines(3)[1]);
+  });
+
+  it("stores each fact with its page", async () => {
+    const fact: FactDraft = { kind: "amount", value: "R$ 10.000,00", normalizedValue: "10000.00", context: "danos morais", page: 2 };
+    const { extractor } = recordingExtractor((input) => ({ ...onePecaPerWindow(input), facts: [fact] }));
+    const { uow, ingest } = await setup({ mapExtractor: extractor });
+
+    const caseFileId = await ingest(digital(3));
+
+    expect(uow.state.ingestion.facts).toEqual([{ ...fact, caseFileId }]);
+  });
+
+  it("records the cost of every window for the lawyer and the case file", async () => {
+    const { extractor, windows } = recordingExtractor(onePecaPerWindow);
+    const { uow, lawyer, ingest } = await setup({ mapExtractor: extractor });
+
+    const caseFileId = await ingest(Array.from({ length: 30 }, () => "full"));
+
+    const extracts = uow.state.metering.usage.filter((event) => event.kind === "extract");
+    expect(extracts).toHaveLength(windows.length);
+    for (const event of extracts) expect(event).toMatchObject({ lawyer, caseFileId });
+  });
+
+  it("builds one document map when the extractor fails once", async () => {
+    let calls = 0;
+    const { extractor } = recordingExtractor((input) => {
+      if (++calls === 1) throw new Error("Claude is down.");
+      return onePecaPerWindow(input);
+    });
+    const { caseFiles, lawyer, ingest } = await setup({ mapExtractor: extractor });
+
+    const caseFileId = await ingest(digital(3));
+
+    const view = await caseFiles.view(lawyer, caseFileId);
+    expect(view.status).toBe("ready");
+    expect(view.documentMap).toHaveLength(1);
+  });
+
+  it("fails the case file and gives the pages back when the extractor fails on every attempt", async () => {
+    const { extractor } = recordingExtractor(() => {
+      throw new Error("Claude is down.");
+    });
+    const { caseFiles, metering, lawyer, ingest } = await setup({ mapExtractor: extractor });
+
+    const caseFileId = await ingest(digital(3));
+
+    expect(await caseFiles.view(lawyer, caseFileId)).toMatchObject({ status: "failed", error: "Não conseguimos ler este arquivo.", documentMap: [] });
+    expect(await metering.pagesLeft(lawyer)).toBe(500);
   });
 });
 

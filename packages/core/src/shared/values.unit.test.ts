@@ -2,6 +2,12 @@ import { describe, expect, it } from "vitest";
 import { DomainError, InvalidPageRange, PageRange } from "./index";
 
 describe("PageRange", () => {
+  it("contains its first and last pages and those between, and no other", () => {
+    const range = PageRange.from(11, 20);
+
+    expect([10, 11, 15, 20, 21].map((page) => range.contains(page))).toEqual([false, true, true, true, false]);
+  });
+
   it.each([
     [1, 1],
     [1, 100],

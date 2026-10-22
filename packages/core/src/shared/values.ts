@@ -14,6 +14,10 @@ export class PageRange {
     }
     return new PageRange(first, last);
   }
+
+  contains(page: number): boolean {
+    return page >= this.first && page <= this.last;
+  }
 }
 
 /** A rectangle on a page, in fractions of the page width and height (0 to 1, origin top-left). */
