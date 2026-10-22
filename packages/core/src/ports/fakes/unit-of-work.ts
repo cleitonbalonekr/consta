@@ -1,16 +1,24 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { CaseFile } from "../../case-files";
 import type { CaseFileProps, CaseFileRepository } from "../../case-files";
+import type { IngestionRepository, PageRecord, PassageRecord } from "../../ingestion";
 import type { LawyerPlan, MeteringRepository, QuotaCharge } from "../../metering";
-import type { CaseFileId, LawyerId } from "../../shared";
+import type { CaseFileId, LawyerId, PageRange } from "../../shared";
 import type { Repositories, UnitOfWork } from "../unit-of-work";
+import type { Usage } from "../usage";
 
 /** The in-memory tables. Tests may seed rows that no repository method writes yet. */
 export type InMemoryState = {
   caseFiles: Map<CaseFileId, CaseFileProps>;
+  ingestion: {
+    ranges: { caseFileId: CaseFileId; first: number; last: number; status: "pending" | "running" | "done"; attempts: number }[];
+    pages: (PageRecord & { caseFileId: CaseFileId })[];
+    passages: (PassageRecord & { caseFileId: CaseFileId })[];
+  };
   metering: {
     plans: Map<LawyerId, LawyerPlan>;
     charges: { lawyer: LawyerId; caseFileId: CaseFileId | null; pages: number; createdAt: Date }[];
+    usage: (Usage & { lawyer: LawyerId; caseFileId: CaseFileId | null })[];
   };
 };
 
@@ -20,10 +28,15 @@ export type InMemoryState = {
  * concurrency (row locks) is tested only on Postgres.
  */
 export class InMemoryUnitOfWork implements UnitOfWork {
-  state: InMemoryState = { caseFiles: new Map(), metering: { plans: new Map(), charges: [] } };
+  state: InMemoryState = {
+    caseFiles: new Map(),
+    ingestion: { ranges: [], pages: [], passages: [] },
+    metering: { plans: new Map(), charges: [], usage: [] },
+  };
   private readonly inRun = new AsyncLocalStorage<true>();
   private readonly repos: Repositories = {
     caseFiles: new InMemoryCaseFileRepository(() => this.state),
+    ingestion: new InMemoryIngestionRepository(() => this.state),
     metering: new InMemoryMeteringRepository(() => this.state),
   };
 
@@ -47,6 +60,11 @@ class InMemoryCaseFileRepository implements CaseFileRepository {
     return props?.lawyer === lawyer ? CaseFile.restore(props) : null;
   }
 
+  async findById(id: CaseFileId) {
+    const props = this.state().caseFiles.get(id);
+    return props ? CaseFile.restore(props) : null;
+  }
+
   async listOf(lawyer: LawyerId) {
     return [...this.state().caseFiles.values()]
       .filter((props) => props.lawyer === lawyer)
@@ -56,6 +74,70 @@ class InMemoryCaseFileRepository implements CaseFileRepository {
 
   async save(caseFile: CaseFile) {
     this.state().caseFiles.set(caseFile.id, caseFile.snapshot());
+  }
+}
+
+class InMemoryIngestionRepository implements IngestionRepository {
+  constructor(private readonly state: () => InMemoryState) {}
+
+  async addRanges(caseFileId: CaseFileId, ranges: PageRange[]) {
+    for (const { first, last } of ranges) {
+      if (this.range(caseFileId, first)) continue;
+      this.state().ingestion.ranges.push({ caseFileId, first, last, status: "pending", attempts: 0 });
+    }
+  }
+
+  async startRange(caseFileId: CaseFileId, range: PageRange) {
+    const stored = this.range(caseFileId, range.first);
+    if (!stored) return;
+    stored.status = "running";
+    stored.attempts += 1;
+  }
+
+  async finishRange(caseFileId: CaseFileId, range: PageRange) {
+    const stored = this.range(caseFileId, range.first);
+    if (stored) stored.status = "done";
+  }
+
+  async countUnfinishedRanges(caseFileId: CaseFileId) {
+    return this.state().ingestion.ranges.filter((range) => range.caseFileId === caseFileId && range.status !== "done").length;
+  }
+
+  /** Like the foreign key on Postgres: the passages of a deleted page go with it. */
+  async removePages(caseFileId: CaseFileId, { first, last }: PageRange) {
+    const inRange = (row: { caseFileId: CaseFileId }, page: number) => row.caseFileId === caseFileId && page >= first && page <= last;
+    const { ingestion } = this.state();
+    ingestion.pages = ingestion.pages.filter((page) => !inRange(page, page.number));
+    ingestion.passages = ingestion.passages.filter((passage) => !inRange(passage, passage.page));
+  }
+
+  async savePages(caseFileId: CaseFileId, pages: PageRecord[], passages: PassageRecord[]) {
+    const { ingestion } = this.state();
+    for (const page of pages) {
+      if (ingestion.pages.some((stored) => stored.caseFileId === caseFileId && stored.number === page.number)) {
+        throw new Error(`Page ${page.number} of case file ${caseFileId} is already stored.`);
+      }
+    }
+    for (const passage of passages) {
+      if (!pages.some((page) => page.number === passage.page)) throw new Error(`Page ${passage.page} is not among the pages saved.`);
+    }
+    ingestion.pages.push(...pages.map((page) => ({ ...page, caseFileId })));
+    ingestion.passages.push(...passages.map((passage) => ({ ...passage, caseFileId })));
+  }
+
+  async countPages(caseFileId: CaseFileId) {
+    return this.state().ingestion.pages.filter((page) => page.caseFileId === caseFileId).length;
+  }
+
+  async scannedPages(caseFileId: CaseFileId) {
+    return this.state()
+      .ingestion.pages.filter((page) => page.caseFileId === caseFileId && page.source === "scanned")
+      .map((page) => page.number)
+      .sort((a, b) => a - b);
+  }
+
+  private range(caseFileId: CaseFileId, first: number) {
+    return this.state().ingestion.ranges.find((range) => range.caseFileId === caseFileId && range.first === first);
   }
 }
 
@@ -89,5 +171,14 @@ class InMemoryMeteringRepository implements MeteringRepository {
   async insertCharge({ lawyer, caseFileId, pages }: QuotaCharge) {
     if (await this.isCharged(caseFileId)) return;
     this.state().metering.charges.push({ lawyer, caseFileId, pages, createdAt: new Date() });
+  }
+
+  async deleteCharge(caseFileId: CaseFileId) {
+    const { metering } = this.state();
+    metering.charges = metering.charges.filter((charge) => charge.caseFileId !== caseFileId);
+  }
+
+  async insertUsage(lawyer: LawyerId, caseFileId: CaseFileId | null, usage: Usage[]) {
+    this.state().metering.usage.push(...usage.map((event) => ({ ...event, lawyer, caseFileId })));
   }
 }

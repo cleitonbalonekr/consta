@@ -4,6 +4,16 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "typecheck": "tsc"
+    "typecheck": "tsc",
+    "extraction-check": "tsx src/extraction-check.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^20.19.43",
+    "tsx": "^4.23.15"
+  },
+  "dependencies": {
+    "@consta/adapters": "workspace:*",
+    "@consta/core": "workspace:*",
+    "pdf-lib": "^1.17.1"
   }
 }

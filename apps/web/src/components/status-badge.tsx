@@ -11,13 +11,13 @@ const BADGES: Record<CaseFileStatus, { label: string; tone: string; pulse: boole
   deleting: { label: "Excluindo", tone: "bg-surface-muted text-subtle", pulse: true },
 };
 
-type StatusBadgeProps = { status: CaseFileStatus; pagesDone: number; pageCount: number };
+type StatusBadgeProps = { status: CaseFileStatus; pagesDone: number; pageCount: number; id?: string };
 
 /** A case file's status in a word, with pages read while they are being read. */
-export function StatusBadge({ status, pagesDone, pageCount }: StatusBadgeProps) {
+export function StatusBadge({ status, pagesDone, pageCount, id }: StatusBadgeProps) {
   const badge = BADGES[status];
   return (
-    <span data-status={status} className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium whitespace-nowrap ${badge.tone}`}>
+    <span id={id} data-status={status} className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium whitespace-nowrap ${badge.tone}`}>
       <span className="relative flex size-1.5">
         {badge.pulse && <span className="absolute inline-flex size-full animate-ping rounded-full bg-current opacity-60" />}
         <span className="relative inline-flex size-1.5 rounded-full bg-current" />

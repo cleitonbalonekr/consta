@@ -114,3 +114,33 @@ describe("Metering.chargePages", () => {
     expect(await metering.pagesLeft(lawyer)).toBe(200);
   });
 });
+
+describe("Metering.record", () => {
+  it("stores each provider call for the lawyer and the case file", async () => {
+    const { metering, lawyer, uow } = setup();
+    const caseFileId = CaseFileId(crypto.randomUUID());
+    const embed = { kind: "embed", provider: "voyage", model: "voyage-4-lite", units: 1_200, unit: "token", costUsd: 0.000024 } as const;
+
+    await metering.record(lawyer, caseFileId, [embed, { ...embed, units: 300, costUsd: 0.000006 }]);
+
+    expect(uow.state.metering.usage).toEqual([
+      { ...embed, lawyer, caseFileId },
+      { ...embed, units: 300, costUsd: 0.000006, lawyer, caseFileId },
+    ]);
+  });
+});
+
+describe("Metering.givePagesBack", () => {
+  it("gives a case file's pages back, once, and keeps the other charges", async () => {
+    const { metering, lawyer, charge } = setup();
+    await metering.startTrial(lawyer);
+    charge(100, "2026-10-02T10:00:00Z");
+    const caseFileId = CaseFileId(crypto.randomUUID());
+    await metering.chargePages(lawyer, caseFileId, 40);
+
+    await metering.givePagesBack(caseFileId);
+    await metering.givePagesBack(caseFileId);
+
+    expect(await metering.pagesLeft(lawyer)).toBe(400);
+  });
+});

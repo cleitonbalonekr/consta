@@ -1,5 +1,4 @@
-import { createIngestion, Metering } from "@consta/core";
-import type { Ingestion } from "@consta/core";
+import { CaseFileLifecycle, Ingestion, Metering } from "@consta/core";
 import { createDb, DrizzleUnitOfWork } from "@consta/core/db";
 import { adaptersFromEnv } from "@consta/adapters";
 
@@ -9,9 +8,10 @@ let ingestion: Ingestion | undefined;
 export function container() {
   if (!ingestion) {
     const uow = new DrizzleUnitOfWork(createDb(requiredEnv("DATABASE_URL")));
-    const { files, embedder, extractor, mailer } = adaptersFromEnv(process.env);
+    const { files, embedder } = adaptersFromEnv(process.env);
     const metering = new Metering({ uow });
-    ingestion = createIngestion({ uow, files, embedder, extractor, mailer, metering });
+    const lifecycle = new CaseFileLifecycle({ uow });
+    ingestion = new Ingestion({ uow, files, embedder, metering, lifecycle });
   }
   return { ingestion };
 }

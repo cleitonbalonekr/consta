@@ -1,4 +1,5 @@
 import { and, desc, eq } from "drizzle-orm";
+import type { SQL } from "drizzle-orm";
 import { CaseFile } from "../../case-files";
 import type { CaseFileRepository } from "../../case-files";
 import { CaseFileId, LawyerId } from "../../shared";
@@ -11,14 +12,12 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export class DrizzleCaseFileRepository implements CaseFileRepository {
   constructor(private readonly db: Db) {}
 
-  async find(lawyer: LawyerId, id: CaseFileId, options?: { lock: boolean }) {
-    if (!UUID.test(id)) return null;
-    const query = this.db
-      .select()
-      .from(schema.caseFile)
-      .where(and(eq(schema.caseFile.id, id), eq(schema.caseFile.lawyerId, lawyer)));
-    const [row] = options?.lock ? await query.for("update") : await query;
-    return row ? toCaseFile(row) : null;
+  find(lawyer: LawyerId, id: CaseFileId, options?: { lock: boolean }) {
+    return this.findWhere(id, eq(schema.caseFile.lawyerId, lawyer), options);
+  }
+
+  findById(id: CaseFileId, options?: { lock: boolean }) {
+    return this.findWhere(id, undefined, options);
   }
 
   async listOf(lawyer: LawyerId) {
@@ -37,6 +36,16 @@ export class DrizzleCaseFileRepository implements CaseFileRepository {
       .insert(schema.caseFile)
       .values({ id, ...row })
       .onConflictDoUpdate({ target: schema.caseFile.id, set: row });
+  }
+
+  private async findWhere(id: CaseFileId, owner: SQL | undefined, options?: { lock: boolean }) {
+    if (!UUID.test(id)) return null;
+    const query = this.db
+      .select()
+      .from(schema.caseFile)
+      .where(and(eq(schema.caseFile.id, id), owner));
+    const [row] = options?.lock ? await query.for("update") : await query;
+    return row ? toCaseFile(row) : null;
   }
 }
 

@@ -8,6 +8,8 @@ export type MeteringRepositorySetup = () => Promise<{
   newLawyer: () => Promise<LawyerId>;
   /** Seeds a quota charge at a given moment, which insertCharge can't choose. */
   addCharge: (lawyer: LawyerId, pages: number, createdAt: Date) => Promise<void>;
+  /** Every stored usage row, which no repository method reads yet. */
+  usageRows: () => Promise<Array<{ lawyer: LawyerId; caseFileId: CaseFileId | null; kind: string; units: number; costUsd: number }>>;
 }>;
 
 /** The cases every MeteringRepository adapter passes: the in-memory fake and Drizzle. */
@@ -82,6 +84,35 @@ export function meteringRepositoryContract(setup: MeteringRepositorySetup) {
 
       expect(await uow.run((repos) => repos.metering.isCharged(charged))).toBe(true);
       expect(await uow.run((repos) => repos.metering.isCharged(notCharged))).toBe(false);
+    });
+
+    it("deletes a case file's charge and keeps the others", async () => {
+      const { uow, newLawyer } = await setup();
+      const lawyer = await newLawyer();
+      const [failed, kept] = [CaseFileId(crypto.randomUUID()), CaseFileId(crypto.randomUUID())];
+      await uow.run(async ({ metering }) => {
+        await metering.insertCharge({ lawyer, caseFileId: failed, pages: 40 });
+        await metering.insertCharge({ lawyer, caseFileId: kept, pages: 3 });
+      });
+
+      await uow.run((repos) => repos.metering.deleteCharge(failed));
+      await uow.run((repos) => repos.metering.deleteCharge(failed));
+
+      expect(await uow.run((repos) => repos.metering.isCharged(failed))).toBe(false);
+      expect(await uow.run((repos) => repos.metering.pagesChargedSince(lawyer, new Date(0)))).toBe(3);
+    });
+
+    it("stores one usage row per provider call", async () => {
+      const { uow, newLawyer, usageRows } = await setup();
+      const lawyer = await newLawyer();
+      const embed = { kind: "embed", provider: "voyage", model: "voyage-4-lite", units: 1_200, unit: "token", costUsd: 0.000024 } as const;
+
+      await uow.run((repos) => repos.metering.insertUsage(lawyer, null, [embed, { ...embed, units: 50, costUsd: 0.000001 }]));
+
+      expect(await usageRows()).toEqual([
+        { lawyer, caseFileId: null, kind: "embed", units: 1_200, costUsd: 0.000024 },
+        { lawyer, caseFileId: null, kind: "embed", units: 50, costUsd: 0.000001 },
+      ]);
     });
   });
 }

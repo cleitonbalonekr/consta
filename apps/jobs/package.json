@@ -12,7 +12,8 @@
   "dependencies": {
     "@consta/adapters": "workspace:*",
     "@consta/core": "workspace:*",
-    "@trigger.dev/sdk": "^4.7.2"
+    "@trigger.dev/sdk": "^4.7.2",
+    "pdfjs-dist": "^6.4.299"
   },
   "devDependencies": {
     "@types/node": "^26.6.4",

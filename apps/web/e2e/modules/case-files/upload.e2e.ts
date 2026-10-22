@@ -1,13 +1,39 @@
 import { expect, test, uniqueName } from "../../support/fixtures";
-import { pdfWithPages, twoPartPdf } from "../../support/sample-pdf";
+import { pdfWithPages, pdfWithText, twoPartPdf } from "../../support/sample-pdf";
 
 test.describe("uploading a case file", () => {
-  test("queues the case file for reading and shows it in the list", async ({ caseFileList, caseFile, page }) => {
+  test("reads it page by page while the lawyer watches, then makes it ready", async ({ caseFileList, caseFile }) => {
+    await caseFileList.goto();
+
+    // The Trial quota is 500 pages. This many take a few seconds to read, so the progress shows.
+    await caseFileList.uploadAndOpen(uniqueName("Autos lidos"), await pdfWithText(400));
+
+    await caseFile.expectStep("processing");
+    await expect(caseFile.pagesRead).toContainText(/^\d+ de 400 páginas lidas$/);
+    const first = Number((await caseFile.pagesRead.textContent())!.split(" ")[0]);
+    await expect(async () => {
+      const now = Number((await caseFile.pagesRead.textContent())!.split(" ")[0]);
+      expect(now).toBeGreaterThan(first);
+    }).toPass({ timeout: 30_000 });
+    await caseFile.expectReady();
+    await expect(caseFile.unreadPages).toHaveCount(0);
+  });
+
+  test("shows the lawyer the scanned pages that were not read", async ({ caseFileList, caseFile }) => {
+    await caseFileList.goto();
+
+    await caseFileList.uploadAndOpen(uniqueName("Autos com digitalizações"), await pdfWithText(8, [3, 4, 7]));
+
+    await caseFile.expectReady();
+    await expect(caseFile.unreadPages).toHaveText("p. 3–4 e 7");
+  });
+
+  test("shows the new case file in the list", async ({ caseFileList, caseFile, page }) => {
     await caseFileList.goto();
 
     const caseFileId = await caseFileList.uploadAndOpen(uniqueName("Autos enviados"));
 
-    await caseFile.expectStep("queued");
+    await caseFile.expectReady();
     await page.goBack();
     await expect(caseFileList.row(caseFileId)).toBeVisible();
   });
@@ -50,7 +76,7 @@ test.describe("uploading a case file", () => {
     await caseFileList.resumeUpload();
 
     await page.waitForURL(/\/autos\/[^/]+$/, { timeout: 30_000 });
-    await caseFile.expectStep("queued");
+    await caseFile.expectReady();
     expect(sentParts).toEqual(["1", "2"]);
   });
 });

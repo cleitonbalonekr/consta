@@ -1,6 +1,6 @@
 import { expect, test, uniqueName } from "../../support/fixtures";
 
-// Needs a ready case file and real answers: ingestion arrives with ticket 05, Answering with 07.
+// Needs real answers and a document map: Answering arrives with ticket 07, the document map with 09.
 test.fixme();
 
 test("the case file page fits a tablet, and the viewer opens over it", async ({ caseFileList, caseFile, answer, viewer, page }) => {

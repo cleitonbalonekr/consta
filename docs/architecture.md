@@ -50,16 +50,16 @@ flowchart LR
   MET --> DB
 ```
 
-The web app's screens only call Case files and Answering; its sign-in calls Metering once, to give a new lawyer the Trial plan. The task runtime only calls Ingestion. Modules never call each other's internals; Case files starts Ingestion through the `Jobs` port, not by importing it.
+The web app's screens only call Case files and Answering; its sign-in calls Metering once, to give a new lawyer the Trial plan. The task runtime only calls Ingestion. Modules never call each other's internals; Case files starts Ingestion through the `Jobs` port, not by importing it. Ingestion changes a case file's status through `CaseFileLifecycle`, the part of the Case files interface for the task runtime, which runs without a lawyer.
 
 ## Modules
 
 | Module | What callers know (interface) | What it hides (implementation) | Called by |
 | --- | --- | --- | --- |
-| **Case files** | Start and finish an upload, view, list, get a read URL, remove | Status lifecycle, page-quota check, multipart upload bookkeeping, ownership checks, ordered deletion of every derived row and the stored PDF | `apps/web` |
-| **Ingestion** | `plan`, `ingestRange`, `map`, `fail`, run in that order; every step is idempotent | Page classification, text and block extraction of digital pages (scanned pages are marked as not read, ADR-0010), folha detection, passage splitting inside a page, embedding, document map windowing and merging, facts, progress, the ready email | `apps/jobs`, the inline `Jobs` adapter |
+| **Case files** | Start and finish an upload, view, list, get a read URL, remove. `CaseFileLifecycle`: the status changes of ingestion | Status lifecycle, page-quota check, multipart upload bookkeeping, ownership checks, ordered deletion of every derived row and the stored PDF | `apps/web`; `CaseFileLifecycle` by Ingestion |
+| **Ingestion** | `plan`, `ingestRange`, `map`, `fail`, run in that order; every step is idempotent. `ingestAll` runs them in-process | Page classification, text and block extraction of digital pages (scanned pages are marked as not read, ADR-0010), folha detection, passage splitting inside a page, embedding, document map windowing and merging, facts, progress, the ready email | `apps/jobs`, the inline `Jobs` adapter |
 | **Answering** | `ask` returns a stream of statements, each with at least one citation | Scope handling, hybrid search and reranking, source blocks per page, token budget, prompt caching, citation-to-page resolution, dropping uncited statements, saving the question, metering | `apps/web` |
-| **Metering** | `record` usage, `startTrial` and `pagesLeft` for a lawyer | Cost per provider and unit, the monthly page-quota window, plan limits | The other three modules, the web app's sign-in, the operator page |
+| **Metering** | `record` usage, `startTrial` and `pagesLeft` for a lawyer, `chargePages` and `givePagesBack` for a case file | Cost per provider and unit, the monthly page-quota window, plan limits | The other three modules, the web app's sign-in, the operator page |
 
 Each module is a folder whose `index.ts` is its whole interface. Code outside the folder imports only from `index.ts`; a lint rule (`no-restricted-imports` on deep paths) enforces it.
 
@@ -102,12 +102,28 @@ export class CaseFiles {
 // packages/core/src/ingestion/index.ts
 /** Call order: plan, then ingestRange for every range (in parallel), then map. Any step may be retried. */
 export class Ingestion {
-  constructor(deps: { uow: UnitOfWork; files: FileStore; embedder: Embedder; extractor: MapExtractor; mailer: Mailer; metering: Metering });
+  // Ticket 09 adds the MapExtractor, ticket 13 the Mailer.
+  constructor(deps: { uow: UnitOfWork; files: FileStore; embedder: Embedder; metering: Metering; lifecycle: CaseFileLifecycle });
   plan(caseFileId: CaseFileId): Promise<PageRange[]>;
   /** A retry replaces the pages and passages of that range only. */
   ingestRange(caseFileId: CaseFileId, range: PageRange): Promise<void>;
-  /** Builds the document map and facts from all pages, marks the case file ready and emails the lawyer. */
+  /** Marks the case file ready with its unread scanned pages. Ticket 09 builds the document map and facts here first. */
   map(caseFileId: CaseFileId): Promise<void>;
+  /** The reason is Portuguese, for the lawyer. Gives the pages back to the quota. */
+  fail(caseFileId: CaseFileId, reason: string): Promise<void>;
+  /** plan, every range with 4 attempts, then map, in-process; fail when a step fails for good. For the inline Jobs adapter. */
+  ingestAll(caseFileId: CaseFileId): Promise<void>;
+}
+
+// packages/core/src/case-files/lifecycle.ts
+/** Each method locks the case file row, joins the caller's run, and does nothing when the status is already its target. */
+export class CaseFileLifecycle {
+  constructor(deps: { uow: UnitOfWork });
+  target(caseFileId: CaseFileId): Promise<IngestionTarget>; // lawyer, storage key, size, page count, status
+  startProcessing(caseFileId: CaseFileId): Promise<void>;
+  recordPagesRead(caseFileId: CaseFileId, pages: number): Promise<void>; // only goes up
+  startMapping(caseFileId: CaseFileId): Promise<void>;
+  markReady(caseFileId: CaseFileId, unreadPages: UnreadPages): Promise<void>;
   fail(caseFileId: CaseFileId, reason: string): Promise<void>;
 }
 ```
@@ -181,7 +197,7 @@ Each port is a real seam: it has a production adapter and an in-memory fake used
 | `Reranker` | Orders passages for a question | Voyage | Keeps the input order |
 | `CitingModel` | Answers from source blocks, returning text with the ids of the sources it cites | Claude Sonnet with native citations | Scripted answers, including uncited ones |
 | `MapExtractor` | Reads a window of pages and returns peças and facts | Claude Haiku | Scripted peças and facts |
-| `Jobs` | Starts ingestion of a case file | Trigger.dev, with the case file id as the idempotency key, in both adapter modes (ADR-0009) | Inline: runs plan, ranges and map in-process. Recording: records the request only (the E2E server until ticket 05) |
+| `Jobs` | Starts ingestion of a case file | Trigger.dev, with the case file id as the idempotency key, in both adapter modes (ADR-0009) | Inline: runs `Ingestion.ingestAll` in-process and returns at once (the E2E server, `CONSTA_JOBS=inline`). Recording: records the request only (tests that run the steps themselves) |
 | `Mailer` | Sends a templated email | Resend | In-memory outbox |
 | Repositories (one per module) | Read and write the module's tables, including hybrid search | Drizzle on Postgres | In-memory tables |
 | `UnitOfWork` | Runs work in one transaction with repositories bound to it | Drizzle transaction | Copies the in-memory state and restores it if the work throws |
@@ -209,7 +225,7 @@ stateDiagram-v2
   processing --> mapping: all ranges done
   mapping --> ready: document map built
   queued --> failed: ingestion fails before the first range
-  processing --> failed: a range fails after 3 retries
+  processing --> failed: a range fails after 3 retries, the pages go back to the quota
   mapping --> failed
   uploading --> deleting: remove, aborts the multipart upload
   ready --> deleting: remove

@@ -2,6 +2,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import type { Repositories, UnitOfWork } from "../../ports";
 import type { Db } from "../index";
 import { DrizzleCaseFileRepository } from "./case-files";
+import { DrizzleIngestionRepository } from "./ingestion";
 import { DrizzleMeteringRepository } from "./metering";
 
 /**
@@ -24,5 +25,9 @@ export class DrizzleUnitOfWork implements UnitOfWork {
 }
 
 function repositoriesFor(db: Db): Repositories {
-  return { caseFiles: new DrizzleCaseFileRepository(db), metering: new DrizzleMeteringRepository(db) };
+  return {
+    caseFiles: new DrizzleCaseFileRepository(db),
+    ingestion: new DrizzleIngestionRepository(db),
+    metering: new DrizzleMeteringRepository(db),
+  };
 }

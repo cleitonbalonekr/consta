@@ -15,6 +15,7 @@ describe("database schema", () => {
       .insert(schema.caseFile)
       .values({ lawyerId, name: "Autos 123", storageKey: "case-files/1.pdf", sizeBytes: 1, pageCount: 2 })
       .returning();
+    await db.insert(schema.page).values([1, 2].map((number) => ({ caseFileId: caseFile!.id, number, source: "digital" as const, text: "", blocks: [] })));
 
     await db.insert(schema.passage).values([
       { caseFileId: caseFile!.id, page: 1, text: "O autor apresentou as petições iniciais.", embedding: embedding(0), embeddingModel: "test", blockIndexes: [0] },
