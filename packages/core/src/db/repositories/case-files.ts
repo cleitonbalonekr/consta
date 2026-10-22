@@ -1,7 +1,7 @@
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, isNotNull } from "drizzle-orm";
 import type { SQL } from "drizzle-orm";
 import { CaseFile } from "../../case-files";
-import type { CaseFileRepository } from "../../case-files";
+import type { CaseFileRepository, Folhas } from "../../case-files";
 import { CaseFileId, LawyerId } from "../../shared";
 import type { Db } from "../index";
 import * as schema from "../schema";
@@ -27,6 +27,18 @@ export class DrizzleCaseFileRepository implements CaseFileRepository {
       .where(eq(schema.caseFile.lawyerId, lawyer))
       .orderBy(desc(schema.caseFile.createdAt));
     return rows.map(toCaseFile);
+  }
+
+  async folhasOf(id: CaseFileId) {
+    if (!UUID.test(id)) return {};
+    const rows = await this.db
+      .select({ number: schema.page.number, folha: schema.page.folha })
+      .from(schema.page)
+      .where(and(eq(schema.page.caseFileId, id), isNotNull(schema.page.folha)));
+    const folhas: Folhas = {};
+    // The where clause keeps only pages with a folha; the select type can't see it.
+    for (const { number, folha } of rows) folhas[number] = folha!;
+    return folhas;
   }
 
   async save(caseFile: CaseFile) {

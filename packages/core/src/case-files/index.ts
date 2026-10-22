@@ -34,12 +34,17 @@ export type CaseFileSummary = {
   createdAt: Date;
 };
 
+/** Page number to the folha stamped on it, for the pages that have one. */
+export type Folhas = Record<number, string>;
+
 export type CaseFileView = CaseFileSummary & {
   error: string | null;
   /** The scanned pages that were not read, so no answer can cite them (ADR-0010). */
   unreadPages: UnreadPages;
   /** Empty until the case file is ready. */
   documentMap: PecaView[];
+  /** Empty until the case file is ready. */
+  folhas: Folhas;
 };
 
 /** Case files' table, behind a port so the module holds no SQL (ADR-0006). */
@@ -53,6 +58,8 @@ export interface CaseFileRepository {
   findById(id: CaseFileId, options?: { lock: boolean }): Promise<CaseFile | null>;
   /** The lawyer's case files, newest first. */
   listOf(lawyer: LawyerId): Promise<CaseFile[]>;
+  /** The folhas ingestion found on the case file's pages. */
+  folhasOf(id: CaseFileId): Promise<Folhas>;
   /** Inserts a new case file or updates the stored one. */
   save(caseFile: CaseFile): Promise<void>;
 }
@@ -132,7 +139,7 @@ export class CaseFiles {
   async finishUpload(lawyer: LawyerId, caseFileId: CaseFileId): Promise<CaseFileView> {
     const caseFile = await this.owned(lawyer, caseFileId);
     if (caseFile.status === "uploading") await this.queue(lawyer, caseFile);
-    else if (caseFile.status !== "queued") return toView(caseFile);
+    else if (caseFile.status !== "queued") return this.view(lawyer, caseFileId);
 
     // After the commit: a failure here leaves the case file queued, and a retry starts it again.
     await this.jobs.startIngestion(caseFileId);
@@ -140,7 +147,11 @@ export class CaseFiles {
   }
 
   async view(lawyer: LawyerId, caseFileId: CaseFileId): Promise<CaseFileView> {
-    return toView(await this.owned(lawyer, caseFileId));
+    return this.uow.run(async (repos) => {
+      const caseFile = await this.owned(lawyer, caseFileId);
+      const folhas = caseFile.status === "ready" ? await repos.caseFiles.folhasOf(caseFileId) : {};
+      return toView(caseFile, folhas);
+    });
   }
 
   async list(lawyer: LawyerId): Promise<CaseFileSummary[]> {
@@ -189,7 +200,7 @@ function toSummary(caseFile: CaseFile): CaseFileSummary {
 }
 
 /** The document map arrives with ticket 09; until then it is empty. */
-function toView(caseFile: CaseFile): CaseFileView {
+function toView(caseFile: CaseFile, folhas: Folhas): CaseFileView {
   const { error, unreadPages } = caseFile.snapshot();
-  return { ...toSummary(caseFile), error, unreadPages, documentMap: [] };
+  return { ...toSummary(caseFile), error, unreadPages, documentMap: [], folhas };
 }

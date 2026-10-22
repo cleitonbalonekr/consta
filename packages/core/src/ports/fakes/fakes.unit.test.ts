@@ -5,7 +5,7 @@ import { FakeCitingModel, FakeEmbedder, FakeReranker, InMemoryFileStore, InMemor
 describe("InMemoryFileStore", () => {
   fileStoreContract(async () => {
     const files = new InMemoryFileStore();
-    return { files, putPart: (url, bytes) => files.putPart(url, bytes) };
+    return { files, putPart: (url, bytes) => files.putPart(url, bytes), readRange: (url, range) => files.readRange(url, range) };
   });
 });
 

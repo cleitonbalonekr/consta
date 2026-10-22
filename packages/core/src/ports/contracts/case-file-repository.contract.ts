@@ -93,6 +93,21 @@ export function caseFileRepositoryContract(setup: CaseFileRepositorySetup) {
       });
     });
 
+    it("reads the folha of each page that has one, by page number, and nothing for another case file", async () => {
+      const { uow, newLawyer } = await setup();
+      const [caseFile, other] = [newCaseFile(await newLawyer()), newCaseFile(await newLawyer())];
+      const page = (number: number, folha: string | null) => ({ number, folha, source: "digital" as const, text: "", blocks: [] });
+      await uow.run(async ({ caseFiles, ingestion }) => {
+        await caseFiles.save(caseFile);
+        await caseFiles.save(other);
+        await ingestion.savePages(caseFile.id, [page(1, "12"), page(2, null), page(3, "13-v")], []);
+        await ingestion.savePages(other.id, [page(1, "99")], []);
+      });
+
+      expect(await uow.run((repos) => repos.caseFiles.folhasOf(caseFile.id))).toEqual({ 1: "12", 3: "13-v" });
+      expect(await uow.run((repos) => repos.caseFiles.folhasOf(CaseFileId(crypto.randomUUID())))).toEqual({});
+    });
+
     it("lists only the lawyer's case files, newest first", async () => {
       const { uow, newLawyer } = await setup();
       const [lawyer, other] = [await newLawyer(), await newLawyer()];

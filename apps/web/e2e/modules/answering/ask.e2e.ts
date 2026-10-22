@@ -20,8 +20,7 @@ test.describe("asking about the whole case file", () => {
     for (const label of await answer.citationLabels()) expect(label).toMatch(/^p\. [1-3] · fls\. [1-3]$/);
   });
 
-  // Needs the viewer: ticket 08.
-  test.fixme("a citation opens the viewer at its page with its text marked", async ({ caseFile, answer, viewer }) => {
+  test("a citation opens the viewer at its page with its text marked", async ({ caseFile, answer, viewer }) => {
     await caseFile.ask("Quem pede a indenização?");
     await answer.waitUntilDone();
 
@@ -65,4 +64,29 @@ test.describe("asking about one peça, and quick actions", () => {
       }
     });
   }
+});
+
+test.describe("the viewer", () => {
+  test("reads only the byte ranges of the pages it shows, and moves between pages", async ({ caseFileList, caseFile, answer, viewer }) => {
+    // Past twice pdf.js's 64 KB chunk, the size from which it reads ranges instead of the whole file.
+    const pdf = await pdfWithText(3, [], { attachmentBytes: 1024 * 1024 });
+    await caseFileList.goto();
+    await caseFileList.uploadAndOpen(uniqueName("Autos grandes"), pdf);
+    await caseFile.expectReady();
+    const reads = viewer.recordRangeReads();
+    await caseFile.ask("Quem pede a indenização?");
+    await answer.waitUntilDone();
+
+    await answer.citation(0, 0).click();
+    await viewer.expectPage(1);
+
+    await viewer.nextPage.click();
+    await viewer.expectPage(2);
+
+    // The embedded file is on no page, so a viewer that loads pages on demand never reads most of the PDF.
+    expect(reads.ranges).toBeGreaterThan(0);
+    expect(reads.bytes).toBeLessThan(pdf.length / 2);
+    await expect(viewer.pageNumber).toContainText("fls. 2");
+    await expect(viewer.marks).toHaveCount(0);
+  });
 });

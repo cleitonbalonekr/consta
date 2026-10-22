@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { Jobs } from "../ports";
 import { InMemoryUnitOfWork, RecordingJobs } from "../ports/fakes";
 import { CaseFileId, InvalidFileSize, InvalidPageCount, InvalidStatus, LawyerId, NotFound, QuotaExceeded } from "../shared";
-import { MAX_BYTES } from "./index";
+import { CaseFileLifecycle, MAX_BYTES } from "./index";
 import { caseFilesOn, pdfWithPages } from "./testing";
 
 /** Fails to start ingestion the first time, as a Trigger.dev outage would, then records like RecordingJobs. */
@@ -80,7 +80,7 @@ describe("CaseFiles.finishUpload", () => {
 
     const view = await caseFiles.finishUpload(lawyer, caseFileId);
 
-    expect(view).toMatchObject({ id: caseFileId, status: "queued", pageCount: 7, documentMap: [] });
+    expect(view).toMatchObject({ id: caseFileId, status: "queued", pageCount: 7, documentMap: [], folhas: {} });
     expect(await metering.pagesLeft(lawyer)).toBe(493);
     expect(jobs.started).toEqual([caseFileId]);
   });
@@ -128,6 +128,24 @@ describe("CaseFiles.finishUpload", () => {
     await caseFiles.finishUpload(lawyer, caseFileId);
 
     await expect(caseFiles.signUploadPart(lawyer, caseFileId, 2)).rejects.toBeInstanceOf(InvalidStatus);
+  });
+});
+
+describe("CaseFiles.view", () => {
+  it("gives the folha of each page of a ready case file, so the viewer shows it beside the page number", async () => {
+    const { caseFiles, metering, uow, lawyer, upload } = await setup();
+    const caseFileId = await upload(lawyer, await pdfWithPages(3), 3);
+    await caseFiles.finishUpload(lawyer, caseFileId);
+    // What ingestion leaves behind: the pages with their folhas, and the case file ready.
+    const page = (number: number, folha: string | null) => ({ caseFileId, number, folha, source: "digital" as const, text: "", blocks: [] });
+    uow.state.ingestion.pages.push(page(1, "40"), page(2, null), page(3, "41"));
+    const lifecycle = new CaseFileLifecycle({ uow, metering });
+    await lifecycle.startProcessing(caseFileId);
+    await lifecycle.recordPagesRead(caseFileId, 3);
+    await lifecycle.startMapping(caseFileId);
+    await lifecycle.markReady(caseFileId, []);
+
+    expect((await caseFiles.view(lawyer, caseFileId)).folhas).toEqual({ 1: "40", 3: "41" });
   });
 });
 

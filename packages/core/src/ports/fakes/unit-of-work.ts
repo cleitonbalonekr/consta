@@ -1,7 +1,7 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import type { AnsweringRepository, FoundPassage, QuestionRecord, RankedPassages } from "../../answering";
 import { CaseFile } from "../../case-files";
-import type { CaseFileProps, CaseFileRepository } from "../../case-files";
+import type { CaseFileProps, CaseFileRepository, Folhas } from "../../case-files";
 import type { IngestionRepository, PageRecord, PassageRecord } from "../../ingestion";
 import type { LawyerPlan, MeteringRepository, QuotaCharge } from "../../metering";
 import type { CaseFileId, LawyerId, PageRange } from "../../shared";
@@ -74,6 +74,14 @@ class InMemoryCaseFileRepository implements CaseFileRepository {
       .filter((props) => props.lawyer === lawyer)
       .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
       .map((props) => CaseFile.restore(props));
+  }
+
+  async folhasOf(id: CaseFileId) {
+    const folhas: Folhas = {};
+    for (const page of this.state().ingestion.pages) {
+      if (page.caseFileId === id && page.folha !== null) folhas[page.number] = page.folha;
+    }
+    return folhas;
   }
 
   async save(caseFile: CaseFile) {

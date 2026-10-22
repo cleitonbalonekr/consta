@@ -60,7 +60,14 @@ export class InMemoryFileStore implements FileStore {
   }
 
   async readUrl(key: string, expiresInSeconds: number) {
-    return `memory://${key}?expiresIn=${expiresInSeconds}`;
+    const search = new URLSearchParams({ key, expiresIn: String(expiresInSeconds) });
+    return `memory://object?${search}`;
+  }
+
+  /** Test helper: what the viewer does with a URL from readUrl, a GET of the byte range [start, end). */
+  async readRange(url: string, range: { start: number; end: number }) {
+    // readUrl always puts the key in the URL.
+    return { status: 206, bytes: await this.read(new URL(url).searchParams.get("key")!, range) };
   }
 
   async read(key: string, range?: { start: number; end: number }) {

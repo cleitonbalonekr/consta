@@ -1,6 +1,6 @@
 "use client";
 
-import type { Citation, PecaView, QuickAction } from "@consta/core";
+import type { Citation, Folhas, PecaView, QuickAction } from "@consta/core";
 import { ArrowUp, Banknote, CalendarClock, LoaderCircle, ShieldCheck, Sparkles, TriangleAlert, Users } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { answerStates, failAnswer, startAnswer } from "@/lib/answer-session";
@@ -18,10 +18,10 @@ const QUICK_ACTIONS: Array<{ action: QuickAction; label: string; icon: typeof Us
 
 const SUGGESTIONS = ["Do que trata esta ação?", "O que a sentença decidiu?", "Quais provas foram produzidas?"];
 
-type CaseFileWorkspaceProps = { caseFileId: string; documentMap: PecaView[]; pdfUrl: string };
+type CaseFileWorkspaceProps = { caseFileId: string; documentMap: PecaView[]; folhas: Folhas; pdfUrl: string };
 
 /** A ready case file: the document map, the conversation, the question composer and the viewer. */
-export function CaseFileWorkspace({ caseFileId, documentMap, pdfUrl }: CaseFileWorkspaceProps) {
+export function CaseFileWorkspace({ caseFileId, documentMap, folhas, pdfUrl }: CaseFileWorkspaceProps) {
   const [peca, setPeca] = useState<PecaView | null>(null);
   const [scopedToPeca, setScopedToPeca] = useState(false);
   const [question, setQuestion] = useState("");
@@ -126,7 +126,7 @@ export function CaseFileWorkspace({ caseFileId, documentMap, pdfUrl }: CaseFileW
         </div>
       </section>
 
-      {openCitation && <ViewerPane pdfUrl={pdfUrl} citation={openCitation} onClose={() => setOpenCitation(null)} />}
+      {openCitation && <ViewerPane pdfUrl={pdfUrl} folhas={folhas} citation={openCitation} onClose={() => setOpenCitation(null)} />}
     </div>
   );
 }
@@ -232,8 +232,10 @@ function Streaming({ first }: { first: boolean }) {
   );
 }
 
+type ViewerPaneProps = { pdfUrl: string; folhas: Folhas; citation: Citation; onClose: () => void };
+
 /** The viewer beside the conversation on wide screens, over it on narrower ones. */
-function ViewerPane({ pdfUrl, citation, onClose }: { pdfUrl: string; citation: Citation; onClose: () => void }) {
+function ViewerPane({ pdfUrl, folhas, citation, onClose }: ViewerPaneProps) {
   useEffect(() => {
     const closeOnEscape = (event: KeyboardEvent) => event.key === "Escape" && onClose();
     window.addEventListener("keydown", closeOnEscape);
@@ -244,7 +246,7 @@ function ViewerPane({ pdfUrl, citation, onClose }: { pdfUrl: string; citation: C
     <>
       <div className="fixed inset-0 z-30 bg-black/40 backdrop-blur-sm xl:hidden" onClick={onClose} aria-hidden />
       <div className="fixed inset-y-0 right-0 z-40 w-full max-w-xl border-l border-line shadow-2xl xl:static xl:z-auto xl:w-[38rem] xl:max-w-none xl:shrink-0 xl:shadow-none">
-        <PdfViewer pdfUrl={pdfUrl} citation={citation} onClose={onClose} />
+        <PdfViewer pdfUrl={pdfUrl} folhas={folhas} citation={citation} onClose={onClose} />
       </div>
     </>
   );

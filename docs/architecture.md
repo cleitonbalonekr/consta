@@ -91,7 +91,7 @@ export class CaseFiles {
   uploadedParts(lawyer: LawyerId, caseFileId: CaseFileId): Promise<UploadedPart[]>; // lets the browser resume
   /** Closes the upload, recounts pages, re-checks the quota, then starts ingestion. Idempotent. */
   finishUpload(lawyer: LawyerId, caseFileId: CaseFileId): Promise<CaseFileView>;
-  view(lawyer: LawyerId, caseFileId: CaseFileId): Promise<CaseFileView>; // status, progress, document map
+  view(lawyer: LawyerId, caseFileId: CaseFileId): Promise<CaseFileView>; // status, progress, document map, folha of each page
   list(lawyer: LawyerId): Promise<CaseFileSummary[]>;
   readUrl(lawyer: LawyerId, caseFileId: CaseFileId): Promise<string>; // signed, supports HTTP range requests
   remove(lawyer: LawyerId, caseFileId: CaseFileId): Promise<void>;

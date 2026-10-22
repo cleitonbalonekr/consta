@@ -47,7 +47,12 @@ export default async function CaseFilePage(props: PageProps<"/autos/[caseFileId]
       </div>
       {ready && <UnreadPages ranges={caseFile.unreadPages} />}
       {ready ? (
-        <CaseFileWorkspace caseFileId={caseFile.id} documentMap={caseFile.documentMap} pdfUrl={await caseFiles.readUrl(lawyer, caseFileId)} />
+        <CaseFileWorkspace
+          caseFileId={caseFile.id}
+          documentMap={caseFile.documentMap}
+          folhas={caseFile.folhas}
+          pdfUrl={await caseFiles.readUrl(lawyer, caseFileId)}
+        />
       ) : (
         <main className="mx-auto w-full max-w-lg px-4 py-12">
           <RefreshWhileIngesting active={caseFile.ingesting} />
