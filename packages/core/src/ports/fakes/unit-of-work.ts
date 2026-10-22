@@ -1,6 +1,5 @@
 import { AsyncLocalStorage } from "node:async_hooks";
-import { RankFusion } from "../../answering";
-import type { AnsweringRepository, FoundPassage, QuestionRecord } from "../../answering";
+import type { AnsweringRepository, FoundPassage, QuestionRecord, RankedPassages } from "../../answering";
 import { CaseFile } from "../../case-files";
 import type { CaseFileProps, CaseFileRepository } from "../../case-files";
 import type { IngestionRepository, PageRecord, PassageRecord } from "../../ingestion";
@@ -158,13 +157,13 @@ class InMemoryAnsweringRepository implements AnsweringRepository {
     return props?.lawyer === lawyer ? props.status : null;
   }
 
-  async search(caseFileId: CaseFileId, { text, embedding }: { text: string; embedding: number[] }, depth: number): Promise<FoundPassage[]> {
+  async search(caseFileId: CaseFileId, { text, embedding }: { text: string; embedding: number[] }, depth: number): Promise<RankedPassages> {
     const passages = this.state().ingestion.passages.filter((passage) => passage.caseFileId === caseFileId);
     const byVector = [...passages].sort((a, b) => this.cosine(b.embedding, embedding) - this.cosine(a.embedding, embedding)).slice(0, depth);
     const questionWords = new Set(this.words(text));
     const matches = (passage: { text: string }) => new Set(this.words(passage.text).filter((word) => questionWords.has(word))).size;
     const byText = passages.filter((passage) => matches(passage) > 0).sort((a, b) => matches(b) - matches(a)).slice(0, depth);
-    return RankFusion.fuse([byVector, byText]).map((passage) => this.found(passage));
+    return { byVector: byVector.map((passage) => this.found(passage)), byText: byText.map((passage) => this.found(passage)) };
   }
 
   async saveQuestion(question: QuestionRecord) {

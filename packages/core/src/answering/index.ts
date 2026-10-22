@@ -2,11 +2,14 @@ import type { Metering } from "../metering";
 import type { CitingModel, Embedder, Reranker, Source, UnitOfWork } from "../ports";
 import { NotFound, NotImplemented, QuestionId } from "../shared";
 import type { Box, CaseFileId, CaseFileStatus, LawyerId, PecaId, QuickAction } from "../shared";
+import { RankFusion } from "./rank-fusion";
 import { StatementBuilder } from "./statements";
 import type { FoundPassage } from "./statements";
 
-export { RankFusion } from "./rank-fusion";
 export type { FoundPassage } from "./statements";
+
+/** The two rankings of a hybrid search, each best first. */
+export type RankedPassages = { byVector: FoundPassage[]; byText: FoundPassage[] };
 
 export type Scope = { kind: "whole-file" } | { kind: "peca"; pecaId: PecaId };
 
@@ -48,11 +51,12 @@ export interface AnsweringRepository {
   /** The case file's status, or null when it does not exist or another lawyer owns it. */
   caseFileStatus(lawyer: LawyerId, caseFileId: CaseFileId): Promise<CaseFileStatus | null>;
   /**
-   * Hybrid search over the case file's passages: the `depth` nearest to the embedding and
-   * the `depth` best Portuguese full-text matches for the text, fused by Reciprocal Rank
-   * Fusion (RankFusion), best first. Each passage comes with its page's folha and its boxes.
+   * Both rankings of the hybrid search over the case file's passages, in one query: the
+   * `depth` nearest to the embedding, and the `depth` best Portuguese full-text matches for
+   * any word of the text. Each passage comes with its page's folha and its boxes. Answering
+   * fuses the two.
    */
-  search(caseFileId: CaseFileId, query: { text: string; embedding: number[] }, depth: number): Promise<FoundPassage[]>;
+  search(caseFileId: CaseFileId, query: { text: string; embedding: number[] }, depth: number): Promise<RankedPassages>;
   saveQuestion(question: QuestionRecord): Promise<void>;
 }
 
@@ -139,10 +143,11 @@ export class Answering {
     if (!embedding) throw new Error("The embedder returned no vector for the question.");
 
     // The search does not wait on metering: it is on the path to the first statement.
-    const [found] = await Promise.all([
+    const [ranked] = await Promise.all([
       this.uow.run((repos) => repos.answering.search(caseFileId, { text, embedding }, SEARCH_DEPTH)),
       this.metering.record(lawyer, caseFileId, embedded.usage),
     ]);
+    const found = this.fuse(ranked);
     if (found.length === 0) return [];
     const { order, usage } = await this.reranker.rerank(text, found.map((passage) => passage.text), PASSAGES_FOR_MODEL);
     await this.metering.record(lawyer, caseFileId, usage);
@@ -165,6 +170,12 @@ export class Answering {
       else yield* builder.add(event.text, event.sourceIds);
     }
     yield* builder.finish();
+  }
+
+  /** Reciprocal Rank Fusion of the two rankings, best first. */
+  private fuse({ byVector, byText }: RankedPassages): FoundPassage[] {
+    const byId = new Map([...byVector, ...byText].map((passage) => [passage.id, passage]));
+    return RankFusion.fuse([byVector, byText].map((ranking) => ranking.map((passage) => passage.id))).map((id) => byId.get(id)!);
   }
 
   private source({ id, page, folha, text }: FoundPassage): Source {

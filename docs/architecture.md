@@ -155,7 +155,7 @@ export type Scope = { kind: "whole-file" } | { kind: "peca"; pecaId: PecaId };
 
 export type AnswerEvent =
   | { type: "statement"; statement: Statement }
-  | { type: "refused"; reason: "not-ready" | "scope-too-large" }
+  | { type: "refused"; reason: "not-ready" | "scope-too-large" | "declined" }
   | { type: "done"; questionId: QuestionId; dropped: number }; // dropped = uncited statements removed
 
 export type Statement = { text: string; citations: [Citation, ...Citation[]] }; // never empty, by type

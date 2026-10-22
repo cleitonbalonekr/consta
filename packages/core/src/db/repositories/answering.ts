@@ -1,11 +1,12 @@
 import { and, asc, desc, eq, sql } from "drizzle-orm";
-import { RankFusion } from "../../answering";
-import type { AnsweringRepository, FoundPassage, QuestionRecord } from "../../answering";
+import type { AnsweringRepository, QuestionRecord, RankedPassages } from "../../answering";
 import type { CaseFileId, LawyerId } from "../../shared";
 import type { Db } from "../index";
 import * as schema from "../schema";
 
 const { caseFile, page, passage, question } = schema;
+
+type Ranking = "vector" | "text";
 
 export class DrizzleAnsweringRepository implements AnsweringRepository {
   constructor(private readonly db: Db) {}
@@ -19,12 +20,13 @@ export class DrizzleAnsweringRepository implements AnsweringRepository {
   }
 
   /**
-   * One statement: two ranked CTEs, their union, and the fused score. Iterative index
-   * scans (pgvector 0.8) keep the HNSW index from returning fewer than `depth` rows once
-   * the case-file filter removes other case files' passages. They run in strict order, because
-   * the vector rank and the LIMIT trust the index's order. SET LOCAL lasts until the run ends.
+   * One statement: two ranked CTEs, and their rows with the passage and page each names.
+   * Iterative index scans (pgvector 0.8) keep the HNSW index from returning fewer than
+   * `depth` rows once the case-file filter removes other case files' passages. They run in
+   * strict order, because the vector rank and the LIMIT trust the index's order. SET LOCAL
+   * lasts until the run ends.
    */
-  async search(caseFileId: CaseFileId, { text, embedding }: { text: string; embedding: number[] }, depth: number): Promise<FoundPassage[]> {
+  async search(caseFileId: CaseFileId, { text, embedding }: { text: string; embedding: number[] }, depth: number): Promise<RankedPassages> {
     await this.db.execute(sql`SET LOCAL hnsw.iterative_scan = strict_order`);
     const ofCaseFile = eq(passage.caseFileId, caseFileId);
     const distance = sql`${passage.embedding} <=> ${JSON.stringify(embedding)}::halfvec`;
@@ -49,23 +51,30 @@ export class DrizzleAnsweringRepository implements AnsweringRepository {
         .limit(depth),
     );
     const ranks = this.db.$with("ranks").as(
-      this.db.select({ id: vector.id, rank: vector.rank }).from(vector).unionAll(this.db.select({ id: fullText.id, rank: fullText.rank }).from(fullText)),
-    );
-    const fused = this.db.$with("fused").as(
       this.db
-        .select({ id: ranks.id, score: sql<number>`sum(1.0 / (${RankFusion.K} + ${ranks.rank}))`.as("score") })
-        .from(ranks)
-        .groupBy(ranks.id),
+        .select({ id: vector.id, rank: vector.rank, ranking: sql<Ranking>`'vector'`.as("ranking") })
+        .from(vector)
+        .unionAll(this.db.select({ id: fullText.id, rank: fullText.rank, ranking: sql<Ranking>`'text'`.as("ranking") }).from(fullText)),
     );
 
     const rows = await this.db
-      .with(vector, fullText, ranks, fused)
-      .select({ id: passage.id, page: passage.page, text: passage.text, blockIndexes: passage.blockIndexes, folha: page.folha, blocks: page.blocks })
-      .from(fused)
-      .innerJoin(passage, eq(passage.id, fused.id))
+      .with(vector, fullText, ranks)
+      .select({
+        ranking: ranks.ranking,
+        id: passage.id,
+        page: passage.page,
+        text: passage.text,
+        blockIndexes: passage.blockIndexes,
+        folha: page.folha,
+        blocks: page.blocks,
+      })
+      .from(ranks)
+      .innerJoin(passage, eq(passage.id, ranks.id))
       .innerJoin(page, and(eq(page.caseFileId, passage.caseFileId), eq(page.number, passage.page)))
-      .orderBy(desc(fused.score), asc(passage.page), asc(passage.id));
-    return rows.map(({ blockIndexes, blocks, ...found }) => ({ ...found, boxes: blockIndexes.flatMap((index) => blocks[index]?.box ?? []) }));
+      .orderBy(asc(ranks.rank));
+    const found = (ranking: Ranking) =>
+      rows.filter((row) => row.ranking === ranking).map(({ blockIndexes, blocks, ranking: _, ...row }) => ({ ...row, boxes: blockIndexes.flatMap((index) => blocks[index]?.box ?? []) }));
+    return { byVector: found("vector"), byText: found("text") };
   }
 
   async saveQuestion({ id, caseFileId, lawyer, scope, text, answer, dropped }: QuestionRecord) {

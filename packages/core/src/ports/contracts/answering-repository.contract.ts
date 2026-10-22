@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { Statement } from "../../answering";
+import type { RankedPassages, Statement } from "../../answering";
 import { CaseFile, FileSize, PageCount } from "../../case-files";
 import type { PageRecord, PassageRecord } from "../../ingestion";
 import { CaseFileId, QuestionId } from "../../shared";
@@ -76,30 +76,34 @@ export function answeringRepositoryContract(setup: AnsweringRepositorySetup) {
       expect(await uow.run((repos) => repos.answering.caseFileStatus(lawyer, CaseFileId(crypto.randomUUID())))).toBeNull();
     });
 
-    it("fuses vector and full-text ranks, so a passage both searches find comes first", async () => {
+    const pages = (ranked: RankedPassages) => ({ byVector: ranked.byVector.map((passage) => passage.page), byText: ranked.byText.map((passage) => passage.page) });
+
+    it("ranks the passages by distance to the embedding, and the ones that match a word of the text by how well", async () => {
       const { uow, caseFileId } = await withPassages();
       // The vector is nearest the sentença, then the laudo; the words match only the laudo.
       const query = { text: "Qual o valor do laudo pericial?", embedding: vector(0.9, 0.3, 0.1) };
 
-      const found = await uow.run((repos) => repos.answering.search(caseFileId, query, 50));
+      const ranked = await uow.run((repos) => repos.answering.search(caseFileId, query, 50));
 
-      expect(found.map((passage) => passage.page)).toEqual([2, 1, 3]);
+      expect(pages(ranked)).toEqual({ byVector: [1, 2, 3], byText: [2] });
     });
 
-    it("takes at most `depth` passages from each search", async () => {
+    it("takes at most `depth` passages for each ranking", async () => {
       const { uow, caseFileId } = await withPassages();
 
-      const found = await uow.run((repos) => repos.answering.search(caseFileId, { text: "laudo pericial", embedding: vector(1) }, 1));
+      const ranked = await uow.run((repos) => repos.answering.search(caseFileId, { text: "laudo pericial sentença", embedding: vector(1) }, 1));
 
-      expect(found.map((passage) => passage.page)).toEqual([1, 2]);
+      expect(pages(ranked)).toEqual({ byVector: [1], byText: [expect.any(Number)] });
     });
 
     it("returns each passage with its page, folha, text and the boxes of its blocks", async () => {
       const { uow, caseFileId } = await withPassages();
 
-      const [first] = await uow.run((repos) => repos.answering.search(caseFileId, { text: "laudo", embedding: vector(0, 1) }, 50));
+      const { byVector, byText } = await uow.run((repos) => repos.answering.search(caseFileId, { text: "laudo", embedding: vector(0, 1) }, 50));
 
-      expect(first).toEqual({ id: expect.any(String), page: 2, folha: "3", text: `${LAUDO}\nAssinatura`, boxes: [box(2), box(3)] });
+      const laudo = { id: expect.any(String), page: 2, folha: "3", text: `${LAUDO}\nAssinatura`, boxes: [box(2), box(3)] };
+      expect(byVector[0]).toEqual(laudo);
+      expect(byText).toEqual([{ ...laudo, id: byVector[0]!.id }]);
     });
 
     it("never returns another case file's passages", async () => {
@@ -107,9 +111,9 @@ export function answeringRepositoryContract(setup: AnsweringRepositorySetup) {
       const other = await withCaseFile(mine);
       await other.uow.run((repos) => repos.ingestion.savePages(other.caseFileId, [pageWith(1, LAUDO)], [passageOn(1, LAUDO, vector(0, 1))]));
 
-      const found = await other.uow.run((repos) => repos.answering.search(other.caseFileId, { text: "sentença", embedding: vector(1) }, 50));
+      const ranked = await other.uow.run((repos) => repos.answering.search(other.caseFileId, { text: "sentença", embedding: vector(1) }, 50));
 
-      expect(found.map((passage) => passage.page)).toEqual([1]);
+      expect(pages(ranked)).toEqual({ byVector: [1], byText: [] });
     });
 
     it("saves a question with its answer and the count of dropped statements", async () => {

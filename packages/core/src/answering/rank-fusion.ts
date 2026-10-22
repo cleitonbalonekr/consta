@@ -1,7 +1,7 @@
 /**
  * Reciprocal Rank Fusion: an item's score is the sum of 1 / (K + rank) over the
- * rankings that hold it, with ranks from 1. The Drizzle repository computes the same
- * score in SQL with the same K; this class is the rule for the in-memory fake.
+ * rankings that hold it, with ranks from 1. Answering fuses the hybrid search's two
+ * rankings with it, whichever repository adapter ranked them.
  */
 export class RankFusion {
   /** The usual constant. It keeps one first place from outweighing several good places. */
