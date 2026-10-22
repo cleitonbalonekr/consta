@@ -1,9 +1,10 @@
 "use client";
 
-import type { Citation, PecaView, QuickAction, Statement } from "@consta/core";
+import type { Citation, PecaView, QuickAction } from "@consta/core";
 import { ArrowUp, Banknote, CalendarClock, LoaderCircle, ShieldCheck, Sparkles, TriangleAlert, Users } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { decodeAnswerEvents } from "@/lib/answer-stream";
+import { answerStates, failAnswer, startAnswer } from "@/lib/answer-session";
+import type { AnswerState } from "@/lib/answer-session";
 import type { QuestionRequest } from "@/lib/question-request";
 import { Answer } from "./answer";
 import { DocumentMap, pageRange } from "./document-map";
@@ -16,21 +17,6 @@ const QUICK_ACTIONS: Array<{ action: QuickAction; label: string; icon: typeof Us
 ];
 
 const SUGGESTIONS = ["Do que trata esta ação?", "O que a sentença decidiu?", "Quais provas foram produzidas?"];
-
-const REFUSALS = {
-  "not-ready": "Estes autos ainda estão sendo lidos. Pergunte de novo quando a leitura terminar.",
-  "scope-too-large": "Esta peça é grande demais para uma pergunta só. Escolha uma peça menor.",
-  declined: "Não conseguimos responder a esta pergunta. Tente reformulá-la.",
-};
-
-type AnswerState = {
-  question: string;
-  /** What the question was about, as the lawyer reads it. */
-  scopeLabel: string;
-  statements: Statement[];
-  state: "streaming" | "done" | "refused" | "error";
-  message?: string;
-};
 
 type CaseFileWorkspaceProps = { caseFileId: string; documentMap: PecaView[]; pdfUrl: string };
 
@@ -264,7 +250,7 @@ function ViewerPane({ pdfUrl, citation, onClose }: { pdfUrl: string; citation: C
   );
 }
 
-/** Posts a question and folds the streamed events into the answer shown on screen. */
+/** Posts a question and shows each state of its answer; a new question abandons the one before. */
 function useAnswer(caseFileId: string) {
   const [answer, setAnswer] = useState<AnswerState | null>(null);
   const inFlight = useRef<AbortController | null>(null);
@@ -273,9 +259,9 @@ function useAnswer(caseFileId: string) {
     inFlight.current?.abort();
     const controller = new AbortController();
     inFlight.current = controller;
-    const update = (change: (answer: AnswerState) => AnswerState) =>
-      !controller.signal.aborted && setAnswer((previous) => (previous ? change(previous) : previous));
-    setAnswer({ question, scopeLabel, statements: [], state: "streaming" });
+    const show = (next: AnswerState) => !controller.signal.aborted && setAnswer(next);
+    const start = startAnswer(question, scopeLabel);
+    show(start);
 
     try {
       const response = await fetch(`/api/case-files/${caseFileId}/questions`, {
@@ -285,14 +271,9 @@ function useAnswer(caseFileId: string) {
         signal: controller.signal,
       });
       if (!response.ok || !response.body) throw new Error(`Question failed with ${response.status}.`);
-
-      for await (const event of decodeAnswerEvents(response.body)) {
-        if (event.type === "statement") update((previous) => ({ ...previous, statements: [...previous.statements, event.statement] }));
-        if (event.type === "refused") update((previous) => ({ ...previous, statements: [], state: "refused", message: REFUSALS[event.reason] }));
-        if (event.type === "done") update((previous) => ({ ...previous, state: "done" }));
-      }
+      for await (const next of answerStates(start, response.body)) show(next);
     } catch {
-      update((previous) => ({ ...previous, state: "error", message: "Não conseguimos responder agora. Tente de novo." }));
+      show(failAnswer(start));
     }
   }
 
