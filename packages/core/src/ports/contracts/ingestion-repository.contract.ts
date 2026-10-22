@@ -107,7 +107,7 @@ export function ingestionRepositoryContract(setup: IngestionRepositorySetup) {
       expect(await other.passagePages(other.caseFileId)).toEqual([150]);
     });
 
-    it("reads the length of each page's text, and the text of the pages of a range, in page order", async () => {
+    it("reads the length of each page's text, and the text and source of the pages of a range, in page order", async () => {
       const { uow, caseFileId } = await withCaseFile();
       await uow.run((repos) => repos.ingestion.savePages(caseFileId, [digitalPage(3), scannedPage(2), digitalPage(1)], []));
 
@@ -117,8 +117,8 @@ export function ingestionRepositoryContract(setup: IngestionRepositorySetup) {
         { page: 3, chars: "Página 3".length },
       ]);
       expect(await uow.run((repos) => repos.ingestion.pageTexts(caseFileId, PageRange.from(2, 3)))).toEqual([
-        { page: 2, text: "" },
-        { page: 3, text: "Página 3" },
+        { page: 2, text: "", source: "scanned" },
+        { page: 3, text: "Página 3", source: "digital" },
       ]);
     });
 

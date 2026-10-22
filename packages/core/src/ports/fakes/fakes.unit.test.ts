@@ -30,7 +30,7 @@ describe("FakeMapExtractor", () => {
   mapExtractorContract(async () => ({ extractor: new FakeMapExtractor() }));
 
   it("maps a window, by default, as peças of two pages, each of the next type in the order of a lawsuit", async () => {
-    const pages = [1, 2, 3, 4, 5].map((page) => ({ page, text: `Página ${page}` }));
+    const pages = [1, 2, 3, 4, 5].map((page) => ({ page, text: `Página ${page}`, source: "digital" as const }));
 
     const { pecas } = await new FakeMapExtractor().extract({ pages, openPeca: null });
 

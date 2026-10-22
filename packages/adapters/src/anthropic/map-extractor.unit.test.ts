@@ -1,4 +1,4 @@
-import type { PecaDraft } from "@consta/core/ports";
+import type { PageText, PecaDraft } from "@consta/core/ports";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ClaudeMapExtractor } from "./index";
 
@@ -6,9 +6,10 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-const PAGES = [
-  { page: 11, text: "SENTENÇA. Ante o exposto, JULGO PROCEDENTE o pedido." },
-  { page: 12, text: "" },
+const PAGES: PageText[] = [
+  { page: 11, text: "SENTENÇA. Ante o exposto, JULGO PROCEDENTE o pedido.", source: "digital" },
+  { page: 12, text: "", source: "scanned" },
+  { page: 13, text: "", source: "digital" },
 ];
 
 const OPEN_PECA: PecaDraft = {
@@ -25,6 +26,7 @@ const ANSWER = {
     { type: "sentenca", title: "Sentença", date: "2026-05-04", firstPage: 11, lastPage: 12, summary: "Julga o pedido procedente." },
     { type: "despacho", title: "Despacho", date: "4 de maio", firstPage: 12, lastPage: 12, summary: "Intime-se." },
     { type: "despacho", title: "Despacho", date: "2026-02-30", firstPage: 12, lastPage: 12, summary: "Cite-se." },
+    { type: "despacho", title: "Despacho", date: "2023-05-00", firstPage: 12, lastPage: 12, summary: "Publique-se." },
   ],
   facts: [{ kind: "amount", value: "R$ 10.000,00", normalizedValue: "10000.00", context: "condenação", page: 11 }],
 };
@@ -59,7 +61,7 @@ function sentRequest(fetch: ReturnType<typeof stubFetch>) {
 const extractor = () => new ClaudeMapExtractor({ apiKey: "test-key", model: "claude-haiku-5-5" });
 
 describe("ClaudeMapExtractor", () => {
-  it("sends the pages, marking a page with no text as not read, and the open peça, and asks for JSON in the schema", async () => {
+  it("sends the pages, marking a scanned page as not read, and the open peça, and asks for JSON in the schema", async () => {
     const fetch = stubFetch(replyEvents());
 
     await extractor().extract({ pages: PAGES, openPeca: OPEN_PECA });
@@ -71,6 +73,8 @@ describe("ClaudeMapExtractor", () => {
     const prompt = JSON.stringify(request.messages);
     expect(prompt).toContain("JULGO PROCEDENTE");
     expect(prompt).toContain('<page number=\\"12\\" unread=\\"true\\"');
+    // A blank digital page was read; it just holds no text.
+    expect(prompt).toContain('<page number=\\"13\\">');
     expect(prompt).toContain('\\"firstPage\\":7');
   });
 
@@ -79,7 +83,7 @@ describe("ClaudeMapExtractor", () => {
 
     const { pecas, facts } = await extractor().extract({ pages: PAGES, openPeca: null });
 
-    expect(pecas).toEqual([ANSWER.pecas[0], { ...ANSWER.pecas[1], date: null }, { ...ANSWER.pecas[2], date: null }]);
+    expect(pecas).toEqual([ANSWER.pecas[0], ...ANSWER.pecas.slice(1).map((peca) => ({ ...peca, date: null }))]);
     expect(facts).toEqual(ANSWER.facts);
   });
 

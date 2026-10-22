@@ -166,7 +166,7 @@ class InMemoryIngestionRepository implements IngestionRepository {
   async pageTexts(caseFileId: CaseFileId, range: PageRange) {
     return this.pagesOf(caseFileId)
       .filter((page) => range.contains(page.number))
-      .map((page) => ({ page: page.number, text: page.text }));
+      .map((page) => ({ page: page.number, text: page.text, source: page.source }));
   }
 
   /** Like the foreign key on Postgres: a fact's page must be stored. */

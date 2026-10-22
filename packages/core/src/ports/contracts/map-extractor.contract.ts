@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { factKinds, pecaTypes } from "../../shared/values";
-import type { MapExtractor, PecaDraft } from "../map-extractor";
+import type { MapExtractor, PageText, PecaDraft } from "../map-extractor";
 
 export type MapExtractorSetup = () => Promise<{ extractor: MapExtractor }>;
 
 /** Three pages of a small lawsuit: the petição inicial on pages 1 and 2, the sentença on page 3. */
-const PAGES = [
+const PAGES: PageText[] = [
   {
     page: 1,
     text: [
@@ -14,6 +14,7 @@ const PAGES = [
       "em face de BANCO EXEMPLO S.A., pelos fatos a seguir expostos. Em 10 de janeiro de 2026 o réu",
       "inscreveu o nome da autora no cadastro de inadimplentes por uma dívida que ela já havia pago.",
     ].join("\n"),
+    source: "digital",
   },
   {
     page: 2,
@@ -22,6 +23,7 @@ const PAGES = [
       "a título de danos morais. Dá-se à causa o valor de R$ 20.000,00. São Paulo, 10 de março de 2026.",
       "JOSÉ DA SILVA, advogado, OAB/SP 123.456.",
     ].join("\n"),
+    source: "digital",
   },
   {
     page: 3,
@@ -30,6 +32,7 @@ const PAGES = [
       "Ante o exposto, JULGO PROCEDENTE o pedido e condeno o réu a pagar R$ 10.000,00 a título de danos",
       "morais. São Paulo, 4 de maio de 2026. Juíza de Direito ANA PEREIRA.",
     ].join("\n"),
+    source: "digital",
   },
 ];
 

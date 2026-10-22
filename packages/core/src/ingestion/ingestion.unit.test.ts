@@ -242,7 +242,7 @@ describe("Ingestion's document map", () => {
 
     const [first, scannedPage, third] = windows[0]!.pages;
     expect(first!.text).toContain(digitalLines(1)[1]);
-    expect(scannedPage).toEqual({ page: 2, text: "" });
+    expect(scannedPage).toEqual({ page: 2, text: "", source: "scanned" });
     expect(third!.text).toContain(digitalLines(3)[1]);
   });
 

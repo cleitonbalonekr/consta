@@ -1,18 +1,12 @@
 import Anthropic from "@anthropic-ai/sdk";
-import { factKinds, pecaTypes } from "@consta/core";
-import type { FactDraft, MapExtractor, PecaDraft, Usage } from "@consta/core/ports";
+import { CalendarDate, factKinds, pecaTypes } from "@consta/core";
+import type { FactDraft, MapExtractor, PageText, PecaDraft, Usage } from "@consta/core/ports";
 import type { AnthropicConfig } from "./index";
 import { ClaudePrices } from "./prices";
 
 /** A window's peças and facts, with room for the model's thinking before it answers. */
 const MAX_TOKENS = 32_000;
 
-const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
-
-/** A YYYY-MM-DD date that is a day of the calendar, as the date column requires; 2026-02-30 is not. */
-function isCalendarDate(date: string): boolean {
-  return ISO_DATE.test(date) && new Date(`${date}T00:00:00Z`).toISOString().startsWith(date);
-}
 
 const INSTRUCTIONS = `You read consecutive pages of a Brazilian lawsuit's case file (the autos) and map them.
 
@@ -92,7 +86,7 @@ export class ClaudeMapExtractor implements MapExtractor {
     ClaudePrices.of(model);
   }
 
-  async extract({ pages, openPeca }: { pages: { page: number; text: string }[]; openPeca: PecaDraft | null }) {
+  async extract({ pages, openPeca }: { pages: PageText[]; openPeca: PecaDraft | null }) {
     const stream = this.client.messages.stream({
       model: this.model,
       max_tokens: MAX_TOKENS,
@@ -109,10 +103,10 @@ export class ClaudeMapExtractor implements MapExtractor {
     return { ...answer, usage: [this.usage(message)] };
   }
 
-  private prompt(pages: { page: number; text: string }[], openPeca: PecaDraft | null): string {
+  private prompt(pages: PageText[], openPeca: PecaDraft | null): string {
     const open = openPeca ? `<open_peca>${JSON.stringify(openPeca)}</open_peca>` : "<open_peca>none</open_peca>";
-    const shown = pages.map(({ page, text }) =>
-      text ? `<page number="${page}">\n${text}\n</page>` : `<page number="${page}" unread="true"></page>`,
+    const shown = pages.map(({ page, text, source }) =>
+      source === "scanned" ? `<page number="${page}" unread="true"></page>` : `<page number="${page}">\n${text}\n</page>`,
     );
     return [open, ...shown].join("\n\n");
   }
@@ -127,7 +121,7 @@ export class ClaudeMapExtractor implements MapExtractor {
       throw new Error("Claude answered the map step without JSON.");
     }
     return {
-      pecas: answer.pecas.map((peca) => ({ ...peca, date: peca.date && isCalendarDate(peca.date) ? peca.date : null })),
+      pecas: answer.pecas.map((peca) => ({ ...peca, date: peca.date ? (CalendarDate.parse(peca.date)?.iso ?? null) : null })),
       facts: answer.facts,
     };
   }

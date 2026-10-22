@@ -1,7 +1,7 @@
 import { CaseFileLifecycle } from "../case-files";
 import type { IngestionTarget } from "../case-files";
 import type { Metering } from "../metering";
-import type { Embedder, FactDraft, FileStore, MapExtractor, PecaDraft, UnitOfWork } from "../ports";
+import type { Embedder, FactDraft, FileStore, MapExtractor, PageText, PecaDraft, UnitOfWork } from "../ports";
 import { PageRange } from "../shared";
 import type { CaseFileId } from "../shared";
 import { DocumentMapDraft, PageWindows } from "./document-map";
@@ -60,8 +60,8 @@ export interface IngestionRepository {
   scannedPages(caseFileId: CaseFileId): Promise<number[]>;
   /** The length of each page's text, in page order. A scanned page has none. */
   pageLengths(caseFileId: CaseFileId): Promise<{ page: number; chars: number }[]>;
-  /** The text of each page in the range, in page order. */
-  pageTexts(caseFileId: CaseFileId, range: PageRange): Promise<{ page: number; text: string }[]>;
+  /** The text and source of each page in the range, in page order. */
+  pageTexts(caseFileId: CaseFileId, range: PageRange): Promise<PageText[]>;
   /** Replaces the case file's document map and facts. Every fact's page is stored. */
   replaceDocumentMap(caseFileId: CaseFileId, pecas: PecaDraft[], facts: FactDraft[]): Promise<void>;
 }
@@ -167,7 +167,7 @@ export class Ingestion {
       const pages = await this.uow.run((repos) => repos.ingestion.pageTexts(caseFileId, window));
       const { usage, ...read } = await this.mapExtractor.extract({ pages, openPeca: draft.openPeca });
       await this.metering.record(lawyer, caseFileId, usage);
-      draft.add(window, read);
+      draft.add(pages, read);
     }
 
     await this.uow.run(async (repos) => {

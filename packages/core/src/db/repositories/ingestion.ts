@@ -72,7 +72,7 @@ export class DrizzleIngestionRepository implements IngestionRepository {
 
   async pageTexts(caseFileId: CaseFileId, { first, last }: PageRange) {
     return this.db
-      .select({ page: page.number, text: page.text })
+      .select({ page: page.number, text: page.text, source: page.source })
       .from(page)
       .where(and(eq(page.caseFileId, caseFileId), gte(page.number, first), lte(page.number, last)))
       .orderBy(asc(page.number));
