@@ -1,4 +1,5 @@
-import type { CaseFileLifecycle, IngestionTarget } from "../case-files";
+import { CaseFileLifecycle } from "../case-files";
+import type { IngestionTarget } from "../case-files";
 import type { Metering } from "../metering";
 import type { Embedder, FileStore, UnitOfWork } from "../ports";
 import { PageRange } from "../shared";
@@ -56,7 +57,6 @@ export type IngestionDeps = {
   files: FileStore;
   embedder: Embedder;
   metering: Metering;
-  lifecycle: CaseFileLifecycle;
 };
 
 /**
@@ -74,11 +74,12 @@ export class Ingestion {
   private readonly reader: PdfPageReader;
   private readonly inProcess: RangeRunner = { run: (caseFileId, ranges) => this.runInProcess(caseFileId, ranges) };
 
-  constructor({ uow, files, embedder, metering, lifecycle }: IngestionDeps) {
+  constructor({ uow, files, embedder, metering }: IngestionDeps) {
     this.uow = uow;
     this.embedder = embedder;
     this.metering = metering;
-    this.lifecycle = lifecycle;
+    // The case file's status changes go through the Case files module's interface for the task runtime.
+    this.lifecycle = new CaseFileLifecycle({ uow, metering });
     this.reader = new PdfPageReader(files);
   }
 

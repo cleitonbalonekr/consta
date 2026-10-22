@@ -13,7 +13,7 @@
  */
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { Answering, CaseFileLifecycle, CaseFiles, Ingestion, MAX_PAGES, Metering } from "@consta/core";
+import { Answering, CaseFiles, Ingestion, MAX_PAGES, Metering } from "@consta/core";
 import type { CaseFileId, LawyerId, Statement } from "@consta/core";
 import { DrizzleUnitOfWork, schema } from "@consta/core/db";
 import { InMemoryFileStore, RecordingJobs } from "@consta/core/fakes";
@@ -63,7 +63,7 @@ class CitationCheck {
   private async ingest(lawyer: LawyerId, embedder: VoyageEmbedder, name: string, pdf: Uint8Array) {
     const files = new InMemoryFileStore();
     const caseFiles = new CaseFiles({ uow: this.uow, files, jobs: new RecordingJobs(), metering: this.metering });
-    const ingestion = new Ingestion({ uow: this.uow, files, embedder, metering: this.metering, lifecycle: new CaseFileLifecycle({ uow: this.uow, metering: this.metering }) });
+    const ingestion = new Ingestion({ uow: this.uow, files, embedder, metering: this.metering });
     // The upload recounts the pages, so the count given here only has to pass the quota.
     const { caseFileId } = await caseFiles.startUpload(lawyer, { name, bytes: pdf.length, pages: 1 });
     await files.putPart(await caseFiles.signUploadPart(lawyer, caseFileId, 1), pdf);

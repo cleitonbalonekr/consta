@@ -1,23 +1,15 @@
-import { CaseFileLifecycle, Ingestion, Metering } from "@consta/core";
+import { Ingestion, Metering } from "@consta/core";
 import { createDb, DrizzleUnitOfWork } from "@consta/core/db";
-import { adaptersFromEnv } from "@consta/adapters";
+import { AdaptersFromEnv } from "@consta/adapters";
 
 let ingestion: Ingestion | undefined;
 
-/** Composition root for the task runtime. Built once per task process. */
+/** Composition root for the task runtime. Built once per task process; it needs only the database, S3 and the embedder. */
 export function container() {
   if (!ingestion) {
-    const uow = new DrizzleUnitOfWork(createDb(requiredEnv("DATABASE_URL")));
-    const { files, embedder } = adaptersFromEnv(process.env);
-    const metering = new Metering({ uow });
-    const lifecycle = new CaseFileLifecycle({ uow, metering });
-    ingestion = new Ingestion({ uow, files, embedder, metering, lifecycle });
+    const adapters = new AdaptersFromEnv(process.env);
+    const uow = new DrizzleUnitOfWork(createDb(adapters.databaseUrl));
+    ingestion = new Ingestion({ uow, files: adapters.files, embedder: adapters.embedder, metering: new Metering({ uow }) });
   }
   return { ingestion };
-}
-
-function requiredEnv(name: string) {
-  const value = process.env[name];
-  if (!value) throw new Error(`Missing environment variable ${name}.`);
-  return value;
 }

@@ -108,7 +108,7 @@ export interface RangeRunner {
 /** Every method can run again on the same case file. */
 export class Ingestion {
   // Ticket 09 adds the MapExtractor, ticket 13 the Mailer.
-  constructor(deps: { uow: UnitOfWork; files: FileStore; embedder: Embedder; metering: Metering; lifecycle: CaseFileLifecycle });
+  constructor(deps: { uow: UnitOfWork; files: FileStore; embedder: Embedder; metering: Metering }); // builds its own CaseFileLifecycle
   /**
    * Plans, has `ranges` run the ranges (in-process by default), and marks the case file ready with
    * its unread scanned pages. Unread ranges fail it with a reason naming their pages; any other

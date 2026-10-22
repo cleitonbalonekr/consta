@@ -1,7 +1,7 @@
 // Test helpers for the Ingestion tests, unit and integration. Not part of the module's interface.
 import { degrees, PDFDocument, StandardFonts } from "pdf-lib";
 import type { PDFFont, PDFPage } from "pdf-lib";
-import { CaseFileLifecycle, CaseFiles } from "../case-files";
+import { CaseFiles } from "../case-files";
 import { Metering } from "../metering";
 import { FakeEmbedder, InlineJobs, InMemoryFileStore, RecordingJobs } from "../ports/fakes";
 import type { Embedder, UnitOfWork } from "../ports";
@@ -75,8 +75,7 @@ export function ingestionOn(uow: UnitOfWork, options: { embedder?: Embedder; sta
   const { embedder = new FakeEmbedder(), startIngestion = true } = options;
   const files = new InMemoryFileStore();
   const metering = new Metering({ uow });
-  const lifecycle = new CaseFileLifecycle({ uow, metering });
-  const ingestion = new Ingestion({ uow, files, embedder, metering, lifecycle });
+  const ingestion = new Ingestion({ uow, files, embedder, metering });
   const jobs = new InlineJobs(() => (caseFileId) => ingestion.ingest(caseFileId));
   const caseFiles = new CaseFiles({ uow, files, jobs: startIngestion ? jobs : new RecordingJobs(), metering });
 
