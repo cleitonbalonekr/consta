@@ -6,7 +6,7 @@ import type { Block } from "../ingestion";
 import type { Box, CaseFileId, CaseFileStatus, LawyerId, PageSource, PecaId, QuickAction } from "../shared";
 import { RankFusion } from "./rank-fusion";
 import { StatementBuilder } from "./statements";
-import type { FoundPassage } from "./statements";
+import type { FoundPassage, ReadPassage } from "./statements";
 
 export type { FoundPassage } from "./statements";
 
@@ -136,7 +136,7 @@ const PECA_INSTRUCTIONS = [
  * What the model reads for a question: the passages, the instructions that describe them, and
  * whether to cache them. `prompt` is what the model is asked: the lawyer's text, or a preset's.
  */
-type Reading = { instructions: string; passages: FoundPassage[]; cacheSources: boolean; prompt: string; unreadPages: UnreadPages };
+type Reading = { instructions: string; passages: ReadPassage[]; cacheSources: boolean; prompt: string; unreadPages: UnreadPages };
 
 /** A question checked and ready to answer: what it is, what the model is asked, and the peça pages it reads, if any. */
 type Prepared = { question: ScopedQuestion; prompt: string; pages: PecaPage[] | null };
@@ -178,7 +178,7 @@ export class Answering {
     const { question, prompt, pages } = prepared;
     const reading = pages
       ? this.pecaReading(pages, prompt)
-      : { instructions: WHOLE_FILE_INSTRUCTIONS, passages: await this.search(lawyer, question.caseFileId, prompt), cacheSources: false, prompt, unreadPages: [] };
+      : { instructions: WHOLE_FILE_INSTRUCTIONS, passages: await this.searchPassages(lawyer, question.caseFileId, prompt), cacheSources: false, prompt, unreadPages: [] };
     yield* this.answer(lawyer, question, reading);
   }
 
@@ -212,15 +212,15 @@ export class Answering {
     return pages.some((page) => page.source === "digital") ? pages : "not-readable";
   }
 
-  /** The digital pages of the peça, one passage per page, cached for follow-up questions. */
+  /** The digital pages of the peça, one passage per page and one block per line, cached for follow-up questions. */
   private pecaReading(pages: PecaPage[], prompt: string): Reading {
-    const digital = pages.filter((page) => page.source === "digital");
+    // A source needs a block, and a page with none has nothing to cite.
+    const digital = pages.filter((page) => page.source === "digital" && page.blocks.length > 0);
     const passages = digital.map(({ page, folha, blocks }) => ({
       id: `page-${page}`,
       page,
       folha,
-      text: blocks.map((block) => block.text).join("\n"),
-      boxes: blocks.map((block) => block.box),
+      blocks: blocks.map(({ text, box }) => ({ text, boxes: [box] })),
     }));
     const unreadPages = PageRange.group(pages.filter((page) => page.source === "scanned").map((page) => page.page));
     return { instructions: PECA_INSTRUCTIONS, passages, cacheSources: true, prompt, unreadPages };
@@ -243,6 +243,12 @@ export class Answering {
     const id = QuestionId(crypto.randomUUID());
     await this.uow.run((repos) => repos.answering.saveQuestion({ id, caseFileId, lawyer, scope, text, answer, dropped: builder.dropped }));
     yield { type: "done", questionId: id, dropped: builder.dropped, unreadPages: reading.unreadPages };
+  }
+
+  /** The passages search finds, each as one block, so a citation of it shows the whole passage. */
+  private async searchPassages(lawyer: LawyerId, caseFileId: CaseFileId, text: string): Promise<ReadPassage[]> {
+    const found = await this.search(lawyer, caseFileId, text);
+    return found.map(({ id, page, folha, text: passageText, boxes }) => ({ id, page, folha, blocks: [{ text: passageText, boxes }] }));
   }
 
   /** Embeds the question, runs the hybrid search, and keeps the passages the reranker puts first. */
@@ -277,7 +283,7 @@ export class Answering {
         return;
       }
       if (event.type === "usage") await this.metering.record(lawyer, caseFileId, [event.usage]);
-      else yield* builder.add(event.text, event.sourceIds);
+      else yield* builder.add(event.text, event.citations);
     }
     yield* builder.finish();
   }
@@ -288,7 +294,7 @@ export class Answering {
     return RankFusion.fuse([byVector, byText].map((ranking) => ranking.map((passage) => passage.id))).map((id) => byId.get(id)!);
   }
 
-  private source({ id, page, folha, text }: FoundPassage): Source {
-    return { id, title: folha ? `Página ${page} (fls. ${folha})` : `Página ${page}`, text };
+  private source({ id, page, folha, blocks }: ReadPassage): Source {
+    return { id, title: folha ? `Página ${page} (fls. ${folha})` : `Página ${page}`, blocks: blocks.map((block) => block.text) };
   }
 }

@@ -7,17 +7,18 @@ afterEach(() => {
 });
 
 const SOURCES: Source[] = [
-  { id: "passage-a", title: "Página 12 (fls. 13)", text: "JULGO PROCEDENTE o pedido." },
-  { id: "passage-b", title: "Página 40", text: "O laudo avaliou o imóvel." },
+  { id: "passage-a", title: "Página 12 (fls. 13)", blocks: ["Ante o exposto,", "JULGO PROCEDENTE o pedido.", "Custas pelo réu."] },
+  { id: "passage-b", title: "Página 40", blocks: ["O laudo avaliou o imóvel."] },
 ];
 
-const citation = (documentIndex: number) => ({
+/** A citation of blocks `start` up to, not including, `end` of one document, as the API sends it. */
+const citation = (documentIndex: number, start: number, end: number) => ({
   type: "content_block_location",
-  cited_text: SOURCES[documentIndex]!.text,
+  cited_text: SOURCES[documentIndex]!.blocks.slice(start, end).join(""),
   document_index: documentIndex,
   document_title: SOURCES[documentIndex]!.title,
-  start_block_index: 0,
-  end_block_index: 1,
+  start_block_index: start,
+  end_block_index: end,
 });
 
 /** A streamed reply as the Messages API sends it: an uncited text block, then a block that cites both sources. */
@@ -31,8 +32,8 @@ function replyEvents(stopReason = "end_turn", model = "claude-sonnet-5-5") {
     { type: "content_block_delta", index: 1, delta: { type: "text_delta", text: "Segundo os autos:\n" } },
     { type: "content_block_stop", index: 1 },
     { type: "content_block_start", index: 2, content_block: { type: "text", text: "", citations: null } },
-    { type: "content_block_delta", index: 2, delta: { type: "citations_delta", citation: citation(0) } },
-    { type: "content_block_delta", index: 2, delta: { type: "citations_delta", citation: citation(1) } },
+    { type: "content_block_delta", index: 2, delta: { type: "citations_delta", citation: citation(0, 1, 3) } },
+    { type: "content_block_delta", index: 2, delta: { type: "citations_delta", citation: citation(1, 0, 1) } },
     { type: "content_block_delta", index: 2, delta: { type: "text_delta", text: "O pedido foi julgado " } },
     { type: "content_block_delta", index: 2, delta: { type: "text_delta", text: "procedente." } },
     { type: "content_block_stop", index: 2 },
@@ -56,7 +57,7 @@ async function answer(cacheSources = false) {
 }
 
 describe("ClaudeCitingModel", () => {
-  it("sends each source as a titled document with citations on, then the question, with the fallback on", async () => {
+  it("sends each source as a titled document of one content block per source block, with citations on, then the question, with the fallback on", async () => {
     const fetch = stubFetch(replyEvents());
 
     await answer();
@@ -70,8 +71,20 @@ describe("ClaudeCitingModel", () => {
       {
         role: "user",
         content: [
-          { type: "document", source: { type: "content", content: [{ type: "text", text: SOURCES[0]!.text }] }, title: "Página 12 (fls. 13)", citations: { enabled: true } },
-          { type: "document", source: { type: "content", content: [{ type: "text", text: SOURCES[1]!.text }] }, title: "Página 40", citations: { enabled: true } },
+          {
+            type: "document",
+            source: {
+              type: "content",
+              content: [
+                { type: "text", text: "Ante o exposto," },
+                { type: "text", text: "JULGO PROCEDENTE o pedido." },
+                { type: "text", text: "Custas pelo réu." },
+              ],
+            },
+            title: "Página 12 (fls. 13)",
+            citations: { enabled: true },
+          },
+          { type: "document", source: { type: "content", content: [{ type: "text", text: "O laudo avaliou o imóvel." }] }, title: "Página 40", citations: { enabled: true } },
           { type: "text", text: "O que decidiu?" },
         ],
       },
@@ -87,14 +100,21 @@ describe("ClaudeCitingModel", () => {
     expect(messages[0].content.map((block: { cache_control?: unknown }) => block.cache_control)).toEqual([undefined, { type: "ephemeral" }, undefined]);
   });
 
-  it("turns each text block into a text event with the ids its citations name, and ends with the usage", async () => {
+  it("turns each text block into a text event with the source blocks its citations name, both ends included, and ends with the usage", async () => {
     stubFetch(replyEvents());
 
     const events = await answer();
 
     expect(events).toEqual([
-      { type: "text", text: "Segundo os autos:\n", sourceIds: [] },
-      { type: "text", text: "O pedido foi julgado procedente.", sourceIds: ["passage-a", "passage-b"] },
+      { type: "text", text: "Segundo os autos:\n", citations: [] },
+      {
+        type: "text",
+        text: "O pedido foi julgado procedente.",
+        citations: [
+          { sourceId: "passage-a", firstBlock: 1, lastBlock: 2 },
+          { sourceId: "passage-b", firstBlock: 0, lastBlock: 0 },
+        ],
+      },
       { type: "usage", usage: { kind: "answer", provider: "anthropic", model: "claude-sonnet-5-5", units: 1_100, unit: "token", costUsd: expect.closeTo(0.003, 12) } },
     ]);
   });

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { CitingModel, CitingModelEvent, Source } from "../ports";
+import type { CitingModel, CitingModelEvent, Source, SourceCitation } from "../ports";
 import { FakeCitingModel, FakeReranker, InMemoryUnitOfWork } from "../ports/fakes";
 import { LawyerId, NotFound, NotImplemented, PecaId } from "../shared";
 import type { CaseFileId } from "../shared";
@@ -7,7 +7,7 @@ import { PASSAGES_FOR_MODEL, PECA_CHAR_BUDGET, PECA_SUMMARY_PROMPT } from "./ind
 import type { AnswerEvent, Statement } from "./index";
 import { answeringOn, sourceOn } from "./testing";
 
-type Line = { text: string; sourceIds: string[] };
+type Line = { text: string; sourceIds?: string[]; citations?: SourceCitation[] };
 
 async function setup(options: Parameters<typeof answeringOn>[1] = {}) {
   const uow = new InMemoryUnitOfWork();
@@ -114,9 +114,9 @@ describe("Answering.ask about the whole case file", () => {
     const finished = new Promise<void>((resolve) => (finish = resolve));
     const model: CitingModel = {
       async *answer({ sources }): AsyncIterable<CitingModelEvent> {
-        yield { type: "text", text: "Primeira afirmação.\n", sourceIds: [sources[0]!.id] };
+        yield { type: "text", text: "Primeira afirmação.\n", citations: [{ sourceId: sources[0]!.id, firstBlock: 0, lastBlock: 0 }] };
         await finished;
-        yield { type: "text", text: "Segunda afirmação.", sourceIds: [sources[0]!.id] };
+        yield { type: "text", text: "Segunda afirmação.", citations: [{ sourceId: sources[0]!.id, firstBlock: 0, lastBlock: 0 }] };
       },
     };
     const { ingest, answering, lawyer } = await setup({ model });
@@ -132,7 +132,7 @@ describe("Answering.ask about the whole case file", () => {
   it("refuses as declined when the model declines part way, keeps the usage, and saves nothing", async () => {
     const model: CitingModel = {
       async *answer({ sources }): AsyncIterable<CitingModelEvent> {
-        yield { type: "text", text: "Primeira afirmação.\nSegunda", sourceIds: [sources[0]!.id] };
+        yield { type: "text", text: "Primeira afirmação.\nSegunda", citations: [{ sourceId: sources[0]!.id, firstBlock: 0, lastBlock: 0 }] };
         yield { type: "usage", usage: { kind: "answer", provider: "fake", model: "fake-citing-model", units: 10, unit: "token", costUsd: 0 } };
         yield { type: "declined" };
       },
@@ -253,21 +253,44 @@ describe("Answering.ask about one peça", () => {
 
     const [call] = model.calls;
     expect(call!.sources.map((source) => source.title)).toEqual(["Página 1 (fls. 2)", "Página 2 (fls. 3)"]);
-    expect(call!.sources[1]!.text).toContain("Página 2: MARIA APARECIDA SOUZA");
+    expect(call!.sources[1]!.blocks).toContain("Página 2: MARIA APARECIDA SOUZA, brasileira, professora, vem propor a presente");
     expect(call!.cacheSources).toBe(true);
     // No search: the pages are read, not embedded or reranked.
     expect(uow.state.metering.usage.slice(before).map((event) => event.kind)).toEqual(["answer"]);
   });
 
-  it("cites the whole page: its page, folha, text and the boxes of all its blocks", async () => {
-    const model = scripted((sources) => [{ text: "A autora é professora.", sourceIds: [sourceOn(sources, 2).id] }]);
+  it("sends each page as one block per line, and cites only the lines the model names: their text and boxes", async () => {
+    const model = scripted((sources) => [{ text: "A autora é professora.", citations: [{ sourceId: sourceOn(sources, 2).id, firstBlock: 1, lastBlock: 2 }] }]);
     const { ask, pecas, pageOn } = await withPecas({ model });
 
     const events = await ask(pecas[0].id);
 
-    const page = pageOn(2);
+    const { blocks } = pageOn(2);
+    expect(sourceOn(model.calls[0]!.sources, 2).blocks).toEqual(blocks.map((block) => block.text));
     expect(statements(events)).toEqual([
-      { text: "A autora é professora.", citations: [{ page: 2, folha: "3", quote: page.text, boxes: page.blocks.map((block) => block.box) }] },
+      { text: "A autora é professora.", citations: [{ page: 2, folha: "3", quote: `${blocks[1]!.text}\n${blocks[2]!.text}`, boxes: [blocks[1]!.box, blocks[2]!.box] }] },
+    ]);
+  });
+
+  it("makes the lines a statement cites on one page one citation, in page order, and ignores lines the page does not have", async () => {
+    const model = scripted((sources) => {
+      const page = sourceOn(sources, 1).id;
+      return [
+        { text: "A ação é de indenização ", citations: [{ sourceId: page, firstBlock: 3, lastBlock: 3 }] },
+        { text: "contra o banco.", citations: [{ sourceId: page, firstBlock: 1, lastBlock: 1 }, { sourceId: page, firstBlock: 2, lastBlock: 99 }] },
+      ];
+    });
+    const { ask, pecas, pageOn } = await withPecas({ model });
+
+    const events = await ask(pecas[0].id);
+
+    const { blocks } = pageOn(1);
+    const cited = blocks.slice(1);
+    expect(statements(events)).toEqual([
+      {
+        text: "A ação é de indenização contra o banco.",
+        citations: [{ page: 1, folha: "2", quote: cited.map((block) => block.text).join("\n"), boxes: cited.map((block) => block.box) }],
+      },
     ]);
   });
 

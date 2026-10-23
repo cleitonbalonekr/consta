@@ -65,6 +65,27 @@ test.describe("asking about one peça", () => {
   });
 });
 
+test("a peça of scanned pages is refused, and an answer names the scanned pages of the peça it did not read", async ({ caseFileList, caseFile, answer }) => {
+  await caseFileList.goto();
+  // The fake extractor maps pages 1–2 and 3–4 as two peças: the first all scanned, the second half scanned.
+  await caseFileList.uploadAndOpen(uniqueName("Autos digitalizados"), await pdfWithText(4, [1, 2, 4]));
+  await caseFile.expectReady();
+
+  await caseFile.choosePeca(0);
+  await caseFile.summarizePeca();
+
+  await answer.waitUntilRefused();
+  await expect(answer.error).toBeVisible();
+  await expect(answer.statements).toHaveCount(0);
+
+  await caseFile.choosePeca(1);
+  await caseFile.summarizePeca();
+
+  await answer.waitUntilDone();
+  expect(await answer.citationLabels()).toEqual(["p. 3 · fls. 3"]);
+  await expect(answer.unreadPages).toContainText("p. 4");
+});
+
 test.describe("quick actions", () => {
   // Needs ticket 11.
   test.fixme();

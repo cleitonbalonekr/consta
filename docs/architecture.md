@@ -143,7 +143,7 @@ export class CaseFileLifecycle {
 // packages/core/src/answering/index.ts
 export class Answering {
   constructor(deps: { uow: UnitOfWork; embedder: Embedder; reranker: Reranker; model: CitingModel; metering: Metering });
-  /** Yields `refused: "not-ready"` unless the case file is ready, and `refused: "scope-too-large"` for a peça over the budget; then each cited statement, then `done`; `refused: "declined"` ends it when the model declines. Throws NotFound for a case file or peça the lawyer can't ask about. */
+  /** Yields `refused: "not-ready"` unless the case file is ready, `refused: "scope-too-large"` for a peça over the budget, and `refused: "not-readable"` for a peça of scanned pages only; then each cited statement, then `done`; `refused: "declined"` ends it when the model declines. Throws NotFound for a case file or peça the lawyer can't ask about. */
   ask(lawyer: LawyerId, question: QuestionInput): AsyncIterable<AnswerEvent>;
 }
 
@@ -156,8 +156,8 @@ export type Scope = { kind: "whole-file" } | { kind: "peca"; pecaId: PecaId };
 
 export type AnswerEvent =
   | { type: "statement"; statement: Statement }
-  | { type: "refused"; reason: "not-ready" | "scope-too-large" | "declined" }
-  | { type: "done"; questionId: QuestionId; dropped: number }; // dropped = uncited statements removed
+  | { type: "refused"; reason: "not-ready" | "scope-too-large" | "not-readable" | "declined" }
+  | { type: "done"; questionId: QuestionId; dropped: number; unreadPages: UnreadPages }; // dropped = uncited statements removed; unreadPages = scanned pages of a peça left out
 
 export type Statement = { text: string; citations: [Citation, ...Citation[]] }; // never empty, by type
 export type Citation = { page: number; folha: string | null; quote: string; boxes: Box[] };
@@ -208,7 +208,7 @@ Each port is a real seam: it has a production adapter and an in-memory fake used
 | `Ocr` (later, ADR-0010) | Reads a PDF of scanned pages into text blocks with bounding boxes and confidence | Mistral OCR, when ticket 06 adds it again | Returns fixture text |
 | `Embedder` | Embeds passages and questions | Voyage | Deterministic hash vectors |
 | `Reranker` | Orders passages for a question | Voyage | Keeps the input order |
-| `CitingModel` | Answers from source blocks, returning text with the ids of the sources it cites | Claude Sonnet with native citations | Scripted answers, including uncited ones |
+| `CitingModel` | Answers from source blocks, returning text with the blocks of the sources it cites | Claude Sonnet with native citations | Scripted answers, including uncited ones |
 | `MapExtractor` | Reads a window of pages and returns peças and facts | Claude Haiku 5.5, one Messages call per window with structured output | Scripted peças and facts |
 | `Jobs` | Starts ingestion of a case file | Trigger.dev, with the case file id as the idempotency key, in both adapter modes (ADR-0009) | Inline: runs `Ingestion.ingest` in-process and returns at once (the E2E server, `CONSTA_JOBS=inline`). Recording: records the request only (tests that run the steps themselves) |
 | `Mailer` | Sends a templated email | Resend | In-memory outbox |
