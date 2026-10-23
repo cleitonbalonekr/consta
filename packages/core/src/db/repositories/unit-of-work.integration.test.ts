@@ -9,6 +9,7 @@ import {
 import { DrizzleUnitOfWork, schema } from "../index";
 import { createTestDb, insertLawyer } from "../testing";
 import { CaseFileId, LawyerId } from "../../shared";
+import type { UsageKind } from "../../shared";
 
 async function setup() {
   const db = await createTestDb();
@@ -17,6 +18,9 @@ async function setup() {
     newLawyer: () => insertLawyer(db),
     addCharge: async (lawyer: string, pages: number, createdAt: Date) => {
       await db.insert(schema.quotaCharge).values({ lawyerId: lawyer, pages, createdAt });
+    },
+    addUsage: async (lawyer: string, caseFileId: CaseFileId | null, kind: UsageKind, costUsd: number, createdAt: Date) => {
+      await db.insert(schema.usageEvent).values({ lawyerId: lawyer, caseFileId, kind, provider: "test", model: "test", units: 1, unit: "token", costUsd: String(costUsd), createdAt });
     },
     passagePages: async (caseFileId: CaseFileId) => {
       const rows = await db

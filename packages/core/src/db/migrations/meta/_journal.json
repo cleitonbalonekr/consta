@@ -50,6 +50,13 @@
       "when": 1792676151164,
       "tag": "0006_build_the_document_map_and_facts",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1792765488687,
+      "tag": "0007_plans_and_billing",
+      "breakpoints": true
     }
   ]
 }

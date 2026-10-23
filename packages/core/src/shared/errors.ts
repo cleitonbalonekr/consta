@@ -55,3 +55,8 @@ export class NotImplemented extends Error {
     super(`${what} is not implemented yet.`);
   }
 }
+
+/** A billing webhook whose signature doesn't match its payload: it didn't come from the payment provider. */
+export class InvalidWebhook extends DomainError {
+  override name = "InvalidWebhook";
+}

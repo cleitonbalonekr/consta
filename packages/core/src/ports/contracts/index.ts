@@ -1,5 +1,6 @@
 // Shared cases that a port's adapters pass (docs/agents/testing.md). Adapter test files import them.
 export { answeringRepositoryContract } from "./answering-repository.contract";
+export { billingContract } from "./billing.contract";
 export { caseFileRepositoryContract } from "./case-file-repository.contract";
 export { citingModelContract } from "./citing-model.contract";
 export { embedderContract } from "./embedder.contract";

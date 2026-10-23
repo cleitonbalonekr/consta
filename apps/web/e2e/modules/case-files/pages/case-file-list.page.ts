@@ -36,6 +36,11 @@ export class CaseFileListPage extends BasePage {
     return this.byId("quota-exceeded");
   }
 
+  /** Pays for Pro from the quota-exceeded screen, which leaves for Stripe Checkout. */
+  async upgradeToPro() {
+    await this.byId("upgrade-to-pro").click();
+  }
+
   get uploadInterrupted() {
     return this.byId("upload-interrupted");
   }

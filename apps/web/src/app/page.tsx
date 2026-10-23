@@ -15,7 +15,8 @@ const formatDate = (date: Date) =>
   date.toLocaleDateString("pt-BR", { day: "2-digit", month: "short", year: "numeric", timeZone: "America/Sao_Paulo" });
 
 export default async function CaseFileListPage() {
-  const caseFiles = await container().caseFiles.list(await currentLawyer());
+  const lawyer = await currentLawyer();
+  const [caseFiles, plan] = await Promise.all([container().caseFiles.list(lawyer), container().plans.view(lawyer)]);
 
   return (
     <main className="mx-auto w-full max-w-4xl px-4 py-10 sm:px-6 sm:py-14">
@@ -28,7 +29,7 @@ export default async function CaseFileListPage() {
       </div>
 
       <div className="mt-8">
-        <UploadCaseFile />
+        <UploadCaseFile pro={plan.pro} />
       </div>
 
       <section className="mt-12" aria-labelledby="case-files-heading">

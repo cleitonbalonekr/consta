@@ -19,7 +19,7 @@ import {
   uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
-import { caseFileStatuses, factKinds, pecaTypes, plans, quickActions, scopeKinds } from "../shared/values";
+import { caseFileStatuses, factKinds, pecaTypes, plans, quickActions, scopeKinds, usageKinds } from "../shared/values";
 import type { Box } from "../shared/values";
 import type { Statement } from "../answering";
 
@@ -37,7 +37,7 @@ export const factKind = pgEnum("fact_kind", factKinds);
 export const plan = pgEnum("plan", plans);
 export const questionScope = pgEnum("question_scope", scopeKinds);
 export const quickAction = pgEnum("quick_action", quickActions);
-export const usageKind = pgEnum("usage_kind", ["ocr", "embed", "rerank", "extract", "answer"]);
+export const usageKind = pgEnum("usage_kind", usageKinds);
 
 const updatedAt = () =>
   timestamp("updated_at", { withTimezone: true })
@@ -122,6 +122,10 @@ export const lawyerPlan = pgTable("lawyer_plan", {
     .references(() => user.id, { onDelete: "cascade" }),
   plan: plan("plan").notNull().default("trial"),
   pageQuota: integer("page_quota").notNull(),
+  /** The payment provider's customer, once the lawyer has paid. */
+  billingCustomer: text("billing_customer").unique(),
+  /** When the payment provider last changed the plan; an older change is stale. */
+  planChangedAt: timestamp("plan_changed_at", { withTimezone: true }),
   createdAt: createdAt(),
 });
 

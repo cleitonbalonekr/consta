@@ -37,6 +37,11 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
             <Logo />
           </Link>
           <div className="flex items-center gap-1">
+            {lawyer && (
+              <Link id="plan-link" href="/plano" className="rounded-lg px-2.5 py-1.5 text-sm text-muted transition-colors hover:bg-surface-muted hover:text-foreground">
+                Plano
+              </Link>
+            )}
             {lawyer && <SignOut email={lawyer.email} />}
             <ThemeToggle />
           </div>

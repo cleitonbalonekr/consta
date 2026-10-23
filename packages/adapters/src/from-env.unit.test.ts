@@ -1,7 +1,8 @@
-import { InlineJobs } from "@consta/core/fakes";
+import { FakeBilling, InlineJobs } from "@consta/core/fakes";
 import { CaseFileId } from "@consta/core";
 import { describe, expect, it } from "vitest";
 import { AdaptersFromEnv } from "./from-env";
+import { StripeBilling } from "./stripe";
 import { TriggerJobs } from "./trigger-jobs";
 
 const ingest = () => async () => {};
@@ -75,5 +76,23 @@ describe("AdaptersFromEnv.databaseUrl", () => {
 
   it("needs DATABASE_URL with real adapters", () => {
     expect(() => new AdaptersFromEnv({ ...REAL, DATABASE_URL: undefined }).databaseUrl).toThrow("Missing environment variable DATABASE_URL.");
+  });
+});
+
+describe("AdaptersFromEnv.billing", () => {
+  const STRIPE = { STRIPE_SECRET_KEY: "sk_test_key", STRIPE_WEBHOOK_SECRET: "whsec_key", STRIPE_PRO_PRICE_ID: "price_pro" };
+
+  it("uses the fake with fake adapters and no Stripe key", () => {
+    expect(new AdaptersFromEnv({ CONSTA_ADAPTERS: "fake" }).billing).toBeInstanceOf(FakeBilling);
+  });
+
+  it("uses Stripe whenever a Stripe key is set, so fake mode runs with Stripe's test keys", () => {
+    expect(new AdaptersFromEnv({ CONSTA_ADAPTERS: "fake", ...STRIPE }).billing).toBeInstanceOf(StripeBilling);
+    expect(new AdaptersFromEnv({ ...REAL, ...STRIPE }).billing).toBeInstanceOf(StripeBilling);
+  });
+
+  it("needs the Stripe settings with real adapters", () => {
+    expect(() => new AdaptersFromEnv(REAL).billing).toThrow("Missing environment variable STRIPE_SECRET_KEY.");
+    expect(() => new AdaptersFromEnv({ ...REAL, STRIPE_SECRET_KEY: "sk_live_key" }).billing).toThrow("Missing environment variable STRIPE_WEBHOOK_SECRET.");
   });
 });

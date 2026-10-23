@@ -3,7 +3,7 @@ import type { AnsweringRepository, FoundPassage, PecaPage, QuestionRecord, Ranke
 import { CaseFile } from "../../case-files";
 import type { CaseFileProps, CaseFileRepository, Folhas, PecaView } from "../../case-files";
 import type { IngestionRepository, PageRecord, PassageRecord } from "../../ingestion";
-import type { LawyerPlan, MeteringRepository, QuotaCharge } from "../../metering";
+import type { LawyerPlan, MeteringRepository, QuotaCharge, UsageCost } from "../../metering";
 import { PecaId } from "../../shared";
 import type { CaseFileId, LawyerId, PageRange } from "../../shared";
 import type { FactDraft, PecaDraft } from "../map-extractor";
@@ -12,6 +12,8 @@ import type { Usage } from "../usage";
 
 /** The in-memory tables. Tests may seed rows that no repository method writes yet. */
 export type InMemoryState = {
+  /** Better Auth's users, which no module owns. Only the operator's costs read their emails. */
+  lawyers: Map<LawyerId, { email: string }>;
   caseFiles: Map<CaseFileId, CaseFileProps>;
   ingestion: {
     ranges: { caseFileId: CaseFileId; first: number; last: number; status: "pending" | "running" | "done"; attempts: number }[];
@@ -23,8 +25,10 @@ export type InMemoryState = {
   answering: { questions: QuestionRecord[] };
   metering: {
     plans: Map<LawyerId, LawyerPlan>;
+    /** The billing side of a plan the payment provider changed. */
+    billing: Map<LawyerId, { billingCustomer: string; changedAt: Date }>;
     charges: { lawyer: LawyerId; caseFileId: CaseFileId | null; pages: number; createdAt: Date }[];
-    usage: (Usage & { lawyer: LawyerId; caseFileId: CaseFileId | null })[];
+    usage: (Usage & { lawyer: LawyerId; caseFileId: CaseFileId | null; createdAt: Date })[];
   };
 };
 
@@ -35,10 +39,11 @@ export type InMemoryState = {
  */
 export class InMemoryUnitOfWork implements UnitOfWork {
   state: InMemoryState = {
+    lawyers: new Map(),
     caseFiles: new Map(),
     ingestion: { ranges: [], pages: [], passages: [], pecas: [], facts: [] },
     answering: { questions: [] },
-    metering: { plans: new Map(), charges: [], usage: [] },
+    metering: { plans: new Map(), billing: new Map(), charges: [], usage: [] },
   };
   private readonly inRun = new AsyncLocalStorage<true>();
   private readonly repos: Repositories = {
@@ -284,6 +289,18 @@ class InMemoryMeteringRepository implements MeteringRepository {
     if (!plans.has(lawyer)) plans.set(lawyer, { ...plan });
   }
 
+  async changePlan(lawyer: LawyerId, plan: LawyerPlan, { billingCustomer, at }: { billingCustomer: string; at: Date }) {
+    const { plans, billing } = this.state().metering;
+    const changedAt = billing.get(lawyer)?.changedAt;
+    if (!plans.has(lawyer) || (changedAt && changedAt > at)) return;
+    plans.set(lawyer, { ...plan });
+    billing.set(lawyer, { billingCustomer, changedAt: at });
+  }
+
+  async billingCustomer(lawyer: LawyerId) {
+    return this.state().metering.billing.get(lawyer)?.billingCustomer ?? null;
+  }
+
   async pagesChargedSince(lawyer: LawyerId, since: Date) {
     return this.state()
       .metering.charges.filter((charge) => charge.lawyer === lawyer && charge.createdAt >= since)
@@ -305,6 +322,26 @@ class InMemoryMeteringRepository implements MeteringRepository {
   }
 
   async insertUsage(lawyer: LawyerId, caseFileId: CaseFileId | null, usage: Usage[]) {
-    this.state().metering.usage.push(...usage.map((event) => ({ ...event, lawyer, caseFileId })));
+    this.state().metering.usage.push(...usage.map((event) => ({ ...event, lawyer, caseFileId, createdAt: new Date() })));
+  }
+
+  /** Like the foreign keys on Postgres: a deleted case file leaves its usage with a null id. */
+  async costsBetween(since: Date, until: Date) {
+    const { lawyers, caseFiles, metering } = this.state();
+    const sums = new Map<string, UsageCost>();
+    for (const { lawyer, caseFileId, kind, costUsd, createdAt } of metering.usage) {
+      if (createdAt < since || createdAt >= until) continue;
+      const key = `${lawyer}|${caseFileId}|${kind}`;
+      const sum = sums.get(key) ?? {
+        lawyer,
+        email: lawyers.get(lawyer)?.email ?? "",
+        caseFileId,
+        caseFileName: caseFileId ? (caseFiles.get(caseFileId)?.name ?? null) : null,
+        kind,
+        costUsd: 0,
+      };
+      sums.set(key, { ...sum, costUsd: sum.costUsd + costUsd });
+    }
+    return [...sums.values()];
   }
 }

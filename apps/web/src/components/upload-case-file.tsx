@@ -4,7 +4,7 @@ import { CloudUpload, LoaderCircle, RotateCw, TriangleAlert } from "lucide-react
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import type { UploadRefusal } from "@/app/actions";
-import { finishUpload, signUploadPart, startUpload, uploadedParts } from "@/app/actions";
+import { finishUpload, signUploadPart, startUpload, upgradeToPro, uploadedParts } from "@/app/actions";
 import { formatNumber } from "@/lib/format";
 import { countPages } from "@/lib/pdf";
 
@@ -25,8 +25,11 @@ const REFUSALS = {
   "too-large": "Este arquivo tem mais de 500 MB, o limite por arquivo. Nada foi enviado.",
 };
 
-/** Picks or drops a PDF, counts its pages, sends it in parts and opens the new case file. */
-export function UploadCaseFile() {
+/**
+ * Picks or drops a PDF, counts its pages, sends it in parts and opens the new case file.
+ * `pro`: the offer of Pro to a lawyer on Trial, shown when a case file is over the quota; null for anyone else.
+ */
+export function UploadCaseFile({ pro }: { pro: { pageQuota: number } | null }) {
   const router = useRouter();
   const [state, setState] = useState<UploadState>({ step: "idle" });
   const [dragging, setDragging] = useState(false);
@@ -158,14 +161,28 @@ export function UploadCaseFile() {
               Estes autos têm {formatNumber(state.pagesNeeded)} páginas e restam {formatNumber(state.pagesLeft)} páginas na sua cota deste mês.
               {state.sent ? " O arquivo não entrou na fila de leitura." : " Nada foi enviado."}
             </p>
-            <button
-              id="quota-exceeded-dismiss"
-              type="button"
-              onClick={() => setState({ step: "idle" })}
-              className="mt-3 text-sm font-medium text-foreground underline decoration-line-strong underline-offset-4 hover:decoration-foreground"
-            >
-              Entendi
-            </button>
+            {pro && <p className="mt-2 text-sm text-muted">O plano Pro cobre {formatNumber(pro.pageQuota)} páginas por mês.</p>}
+            <div className="mt-3 flex flex-wrap items-center gap-4">
+              {pro && (
+                <form action={upgradeToPro}>
+                  <button
+                    id="upgrade-to-pro"
+                    type="submit"
+                    className="inline-flex items-center rounded-lg bg-foreground px-3 py-1.5 text-sm font-medium text-background transition-opacity hover:opacity-90"
+                  >
+                    Assinar o Pro
+                  </button>
+                </form>
+              )}
+              <button
+                id="quota-exceeded-dismiss"
+                type="button"
+                onClick={() => setState({ step: "idle" })}
+                className="text-sm font-medium text-foreground underline decoration-line-strong underline-offset-4 hover:decoration-foreground"
+              >
+                Entendi
+              </button>
+            </div>
           </div>
         </div>
       )}

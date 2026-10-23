@@ -1,6 +1,8 @@
+import type { UsageKind } from "../shared";
+
 /** What one call to a paid provider cost. Every AI port returns it; Metering stores it. */
 export type Usage = {
-  kind: "ocr" | "embed" | "rerank" | "extract" | "answer";
+  kind: UsageKind;
   provider: string;
   model: string;
   units: number;

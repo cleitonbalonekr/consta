@@ -1,0 +1,30 @@
+{
+  "id": "evt_1SxCheckoutDone",
+  "object": "event",
+  "api_version": "2026-09-30.endive",
+  "created": 1792152004,
+  "data": {
+    "object": {
+      "id": "cs_test_a1TqCheckout01",
+      "object": "checkout.session",
+      "client_reference_id": "0b7e1c52-3f4a-4d8e-9b21-6c5d8e7f9a10",
+      "customer": "cus_TqLawyerAna01",
+      "customer_email": "ana@example.com",
+      "livemode": false,
+      "locale": "pt-BR",
+      "mode": "subscription",
+      "payment_status": "paid",
+      "status": "complete",
+      "subscription": "sub_1SxPro2eZvKYlo2C",
+      "success_url": "http://localhost:3000/plano",
+      "cancel_url": "http://localhost:3000/plano"
+    }
+  },
+  "livemode": false,
+  "pending_webhooks": 1,
+  "request": {
+    "id": "req_TqCheckout01",
+    "idempotency_key": null
+  },
+  "type": "checkout.session.completed"
+}

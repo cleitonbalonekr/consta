@@ -80,8 +80,12 @@ The person who signs in, uploads case files and asks questions. A lawyer owns th
 _Avoid_: user, customer, client (a client is the lawyer's own client)
 
 **Plan**:
-What a lawyer pays for: Trial, Pro or Enterprise.
+What a lawyer pays for: Trial, Pro or Enterprise. A lawyer moves from Trial to Pro through Stripe Checkout, and back to Trial when they stop paying.
 _Avoid_: tier, subscription
+
+**Operator**:
+A person who runs Consta and sees what paid providers cost, per lawyer and per case file. Operators are listed by email in configuration; they sign in like lawyers.
+_Avoid_: admin
 
 **Page quota**:
 The number of pages a lawyer's plan allows them to ingest each month. Pages count once ingested, even if the case file is deleted later. A case file whose ingestion fails gives its pages back.

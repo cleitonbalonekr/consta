@@ -2,6 +2,8 @@ import { test as base } from "@playwright/test";
 import { SignInPage } from "../modules/auth/pages/sign-in.page";
 import { CaseFileListPage } from "../modules/case-files/pages/case-file-list.page";
 import { CaseFilePage } from "../modules/case-files/pages/case-file.page";
+import { CostsPage } from "../modules/operator/pages/costs.page";
+import { PlanPage } from "../modules/billing/pages/plan.page";
 import { AnswerComponent } from "./components/answer.component";
 import { HeaderComponent } from "./components/header.component";
 import { ViewerComponent } from "./components/viewer.component";
@@ -11,6 +13,8 @@ type Fixtures = {
   header: HeaderComponent;
   caseFileList: CaseFileListPage;
   caseFile: CaseFilePage;
+  costs: CostsPage;
+  plan: PlanPage;
   answer: AnswerComponent;
   viewer: ViewerComponent;
   /** Whether the journey starts signed in. Journeys about signing in turn it off. */
@@ -24,6 +28,8 @@ export const test = base.extend<Fixtures>({
   header: async ({ page }, use) => use(new HeaderComponent(page)),
   caseFileList: async ({ page }, use) => use(new CaseFileListPage(page)),
   caseFile: async ({ page }, use) => use(new CaseFilePage(page)),
+  costs: async ({ page }, use) => use(new CostsPage(page)),
+  plan: async ({ page }, use) => use(new PlanPage(page)),
   answer: async ({ page }, use) => use(new AnswerComponent(page)),
   viewer: async ({ page }, use) => use(new ViewerComponent(page)),
   signedIn: [true, { option: true }],

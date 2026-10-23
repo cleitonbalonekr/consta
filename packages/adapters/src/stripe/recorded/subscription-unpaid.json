@@ -1,0 +1,71 @@
+{
+  "id": "evt_1SxUnpaid",
+  "object": "event",
+  "api_version": "2026-09-30.endive",
+  "created": 1795700000,
+  "data": {
+    "object": {
+      "id": "sub_1SxPro2eZvKYlo2C",
+      "object": "subscription",
+      "application": null,
+      "billing_cycle_anchor": 1792152000,
+      "cancel_at": null,
+      "cancel_at_period_end": false,
+      "canceled_at": null,
+      "collection_method": "charge_automatically",
+      "created": 1792152000,
+      "currency": "usd",
+      "customer": "cus_TqLawyerAna01",
+      "default_payment_method": "pm_1SxPro2eZvKYlo2CcardVisa",
+      "ended_at": null,
+      "items": {
+        "object": "list",
+        "data": [
+          {
+            "id": "si_TqPro01",
+            "object": "subscription_item",
+            "created": 1792152000,
+            "current_period_start": 1792152000,
+            "current_period_end": 1794830400,
+            "price": {
+              "id": "price_1SxProMonthly",
+              "object": "price",
+              "active": true,
+              "currency": "usd",
+              "product": "prod_TqConstaPro",
+              "recurring": {
+                "interval": "month",
+                "interval_count": 1,
+                "usage_type": "licensed"
+              },
+              "type": "recurring",
+              "unit_amount": 4500
+            },
+            "quantity": 1,
+            "subscription": "sub_1SxPro2eZvKYlo2C"
+          }
+        ],
+        "has_more": false,
+        "total_count": 1,
+        "url": "/v1/subscription_items?subscription=sub_1SxPro2eZvKYlo2C"
+      },
+      "latest_invoice": "in_1SxPro2eZvKYlo2C",
+      "livemode": false,
+      "metadata": {
+        "lawyerId": "0b7e1c52-3f4a-4d8e-9b21-6c5d8e7f9a10"
+      },
+      "start_date": 1792152000,
+      "status": "unpaid"
+    },
+    "previous_attributes": {
+      "status": "past_due"
+    }
+  },
+  "livemode": false,
+  "pending_webhooks": 1,
+  "request": {
+    "id": "req_TqCheckout01",
+    "idempotency_key": null
+  },
+  "type": "customer.subscription.updated"
+}

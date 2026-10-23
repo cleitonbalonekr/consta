@@ -1,13 +1,33 @@
 import { describe, expect, it } from "vitest";
+import type { CaseFileProps } from "../case-files";
+import type { Usage } from "../ports";
 import { InMemoryUnitOfWork } from "../ports/fakes";
 import { CaseFileId, LawyerId, QuotaExceeded } from "../shared";
-import { Metering } from "./index";
+import { Metering, Month } from "./index";
 
 function setup(now = new Date("2026-10-15T12:00:00Z")) {
   const uow = new InMemoryUnitOfWork();
   const lawyer = LawyerId(crypto.randomUUID());
   const charge = (pages: number, createdAt: string) => uow.state.metering.charges.push({ lawyer, caseFileId: null, pages, createdAt: new Date(createdAt) });
   return { uow, lawyer, charge, metering: new Metering({ uow, now: () => now }) };
+}
+
+function caseFileProps(id: CaseFileId, lawyer: LawyerId): CaseFileProps {
+  return {
+    id,
+    lawyer,
+    name: "Autos.pdf",
+    storageKey: `case-files/${id}.pdf`,
+    uploadId: null,
+    sizeBytes: 1_000,
+    pageCount: 10,
+    status: "ready",
+    pagesDone: 10,
+    error: null,
+    unreadPages: [],
+    createdAt: new Date("2026-10-01T12:00:00Z"),
+    readyAt: new Date("2026-10-01T12:05:00Z"),
+  };
 }
 
 describe("Metering.pagesLeft", () => {
@@ -124,8 +144,8 @@ describe("Metering.record", () => {
     await metering.record(lawyer, caseFileId, [embed, { ...embed, units: 300, costUsd: 0.000006 }]);
 
     expect(uow.state.metering.usage).toEqual([
-      { ...embed, lawyer, caseFileId },
-      { ...embed, units: 300, costUsd: 0.000006, lawyer, caseFileId },
+      { ...embed, lawyer, caseFileId, createdAt: expect.any(Date) },
+      { ...embed, units: 300, costUsd: 0.000006, lawyer, caseFileId, createdAt: expect.any(Date) },
     ]);
   });
 });
@@ -142,5 +162,63 @@ describe("Metering.givePagesBack", () => {
     await metering.givePagesBack(caseFileId);
 
     expect(await metering.pagesLeft(lawyer)).toBe(400);
+  });
+});
+
+describe("Metering.costs", () => {
+  const usage = (kind: Usage["kind"], costUsd: number) => ({ kind, provider: "test", model: "test", units: 1, unit: "token" as const, costUsd });
+
+  function seeded() {
+    const { uow, metering } = setup();
+    const ana = LawyerId(crypto.randomUUID());
+    const bia = LawyerId(crypto.randomUUID());
+    uow.state.lawyers.set(ana, { email: "ana@example.com" });
+    uow.state.lawyers.set(bia, { email: "bia@example.com" });
+    const [autosA, autosB] = [CaseFileId(crypto.randomUUID()), CaseFileId(crypto.randomUUID())];
+    uow.state.caseFiles.set(autosA, { ...caseFileProps(autosA, ana), name: "Autos A.pdf" });
+    uow.state.caseFiles.set(autosB, { ...caseFileProps(autosB, ana), name: "Autos B.pdf" });
+    const add = (lawyer: LawyerId, caseFileId: CaseFileId | null, event: Usage, createdAt: string) =>
+      uow.state.metering.usage.push({ ...event, lawyer, caseFileId, createdAt: new Date(createdAt) });
+    return { metering, ana, bia, autosA, autosB, add };
+  }
+
+  it("totals each lawyer's and each case file's costs by kind, for the month in São Paulo", async () => {
+    const { metering, ana, bia, autosA, autosB, add } = seeded();
+    add(ana, autosA, usage("embed", 0.1), "2026-10-01T03:00:00Z"); // 00:00 on 1 October in São Paulo
+    add(ana, autosA, usage("embed", 0.2), "2026-10-20T12:00:00Z");
+    add(ana, autosA, usage("answer", 1.5), "2026-10-20T12:00:00Z");
+    add(ana, autosB, usage("extract", 0.75), "2026-10-31T23:00:00Z");
+    add(ana, null, usage("rerank", 0.05), "2026-10-05T12:00:00Z"); // a case file deleted since
+    add(bia, null, usage("answer", 3), "2026-10-05T12:00:00Z");
+    add(ana, autosA, usage("answer", 9), "2026-10-01T02:59:00Z"); // 23:59 on 30 September in São Paulo
+    add(ana, autosA, usage("answer", 9), "2026-11-01T03:00:00Z"); // 00:00 on 1 November in São Paulo
+
+    const report = await metering.costs(Month.parse("2026-10")!);
+
+    const costs = (partial: Partial<Record<Usage["kind"], number>>, total: number) => ({ ocr: 0, embed: 0, rerank: 0, extract: 0, answer: 0, ...partial, total });
+    expect(report.total).toEqual(costs({ embed: 0.3, rerank: 0.05, extract: 0.75, answer: 4.5 }, 5.6));
+    expect(report.lawyers).toEqual([
+      { lawyer: bia, email: "bia@example.com", costs: costs({ answer: 3 }, 3), caseFiles: [{ caseFileId: null, name: null, costs: costs({ answer: 3 }, 3) }] },
+      {
+        lawyer: ana,
+        email: "ana@example.com",
+        costs: costs({ embed: 0.3, rerank: 0.05, extract: 0.75, answer: 1.5 }, 2.6),
+        caseFiles: [
+          { caseFileId: autosA, name: "Autos A.pdf", costs: costs({ embed: 0.3, answer: 1.5 }, 1.8) },
+          { caseFileId: autosB, name: "Autos B.pdf", costs: costs({ extract: 0.75 }, 0.75) },
+          { caseFileId: null, name: null, costs: costs({ rerank: 0.05 }, 0.05) },
+        ],
+      },
+    ]);
+  });
+
+  it("reports no lawyers and zero totals for a month without usage", async () => {
+    const { metering, ana, add } = seeded();
+    add(ana, null, usage("answer", 1), "2026-09-10T12:00:00Z");
+
+    const report = await metering.costs(Month.parse("2026-10")!);
+
+    expect(report.lawyers).toEqual([]);
+    expect(report.total).toEqual({ ocr: 0, embed: 0, rerank: 0, extract: 0, answer: 0, total: 0 });
   });
 });

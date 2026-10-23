@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { citingModelContract, embedderContract, fileStoreContract, mapExtractorContract, rerankerContract } from "../contracts";
-import { FakeCitingModel, FakeEmbedder, FakeMapExtractor, FakeReranker, InMemoryFileStore, InMemoryMailer } from "./index";
+import { billingContract, citingModelContract, embedderContract, fileStoreContract, mapExtractorContract, rerankerContract } from "../contracts";
+import { FakeBilling, FakeCitingModel, FakeEmbedder, FakeMapExtractor, FakeReranker, InMemoryFileStore, InMemoryMailer } from "./index";
 
 describe("InMemoryFileStore", () => {
   fileStoreContract(async () => {
@@ -19,6 +19,13 @@ describe("FakeEmbedder", () => {
     );
     const dot = (a: number[], b: number[]) => a.reduce((sum, value, i) => sum + value * b[i]!, 0);
     expect(dot(vectors[0]!, vectors[1]!)).toBeGreaterThan(dot(vectors[0]!, vectors[2]!));
+  });
+});
+
+describe("FakeBilling", () => {
+  billingContract(async () => {
+    const billing = new FakeBilling();
+    return { billing, sign: async (change) => billing.sign(change) };
   });
 });
 

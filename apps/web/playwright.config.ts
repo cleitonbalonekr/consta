@@ -1,4 +1,5 @@
 import { defineConfig, devices } from "@playwright/test";
+import { OPERATOR_EMAIL } from "./e2e/support/operator";
 import { SERVER_LOG } from "./e2e/support/server-log";
 
 const PORT = 3100;
@@ -42,6 +43,7 @@ export default defineConfig({
       S3_SECRET_ACCESS_KEY: "consta-secret",
       BETTER_AUTH_SECRET: "e2e-only-secret-for-the-local-production-build",
       BETTER_AUTH_URL: `http://localhost:${PORT}`,
+      OPERATOR_EMAILS: OPERATOR_EMAIL,
     },
   },
 });

@@ -12,7 +12,14 @@ meteringRepositoryContract(async () => {
   const uow = new InMemoryUnitOfWork();
   return {
     uow,
-    newLawyer,
+    newLawyer: async () => {
+      const lawyer = await newLawyer();
+      uow.state.lawyers.set(lawyer, { email: `${lawyer}@example.com` });
+      return lawyer;
+    },
+    addUsage: async (lawyer, caseFileId, kind, costUsd, createdAt) => {
+      uow.state.metering.usage.push({ lawyer, caseFileId, kind, provider: "test", model: "test", units: 1, unit: "token", costUsd, createdAt });
+    },
     addCharge: async (lawyer, pages, createdAt) => {
       uow.state.metering.charges.push({ lawyer, caseFileId: null, pages, createdAt });
     },

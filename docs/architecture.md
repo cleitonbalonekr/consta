@@ -27,6 +27,7 @@ flowchart LR
     MX["MapExtractor"]
     JB["Jobs"]
     ML["Mailer"]
+    BIL["Billing"]
   end
   WEB --> CF
   WEB --> ANS
@@ -47,10 +48,11 @@ flowchart LR
   CF --> DB
   ING --> DB
   ANS --> DB
+  MET --> BIL
   MET --> DB
 ```
 
-The web app's screens only call Case files and Answering; its sign-in calls Metering once, to give a new lawyer the Trial plan. The task runtime only calls Ingestion. Modules never call each other's internals; Case files starts Ingestion through the `Jobs` port, not by importing it. Ingestion changes a case file's status through `CaseFileLifecycle`, the part of the Case files interface for the task runtime, which runs without a lawyer.
+The web app's screens only call Case files and Answering, plus `Plans`, the part of the Metering interface for paying; its sign-in calls Metering once, to give a new lawyer the Trial plan, and the operator's cost page reads Metering's costs. The task runtime only calls Ingestion. Modules never call each other's internals; Case files starts Ingestion through the `Jobs` port, not by importing it. Ingestion changes a case file's status through `CaseFileLifecycle`, the part of the Case files interface for the task runtime, which runs without a lawyer.
 
 ## Modules
 
@@ -59,7 +61,7 @@ The web app's screens only call Case files and Answering; its sign-in calls Mete
 | **Case files** | Start and finish an upload, view, list, get a read URL, remove; a view says whether the case file is still ingesting. `CaseFileLifecycle`: the status changes of ingestion, each safe to run again, and failing, which gives the pages back | Status lifecycle, which statuses count as ingesting, retry-safety of every ingestion step, page-quota check, the pages given back on failure, multipart upload bookkeeping, ownership checks, ordered deletion of every derived row and the stored PDF | `apps/web`; `CaseFileLifecycle` by Ingestion |
 | **Ingestion** | `ingest` runs it all, with a `RangeRunner` that runs the ranges in-process or as Trigger.dev tasks; `ingestRange` for such a runner, `giveUp` when a run dies. Every method is idempotent | The step order, attempts per step and per range, the failure reason, page classification, text and block extraction of digital pages (scanned pages are marked as not read, ADR-0010), folha detection, passage splitting inside a page, embedding, document map windowing and merging, facts, progress, the ready email | `apps/jobs`, the inline `Jobs` adapter |
 | **Answering** | `ask` returns a stream of statements, each with at least one citation | Scope handling, hybrid search and reranking, source blocks per page, token budget, prompt caching, citation-to-page resolution, dropping uncited statements, saving the question, metering | `apps/web` |
-| **Metering** | `record` usage, `startTrial` and `pagesLeft` for a lawyer, `chargePages` and `givePagesBack` for a case file | Cost per provider and unit, the monthly page-quota window, plan limits | The other three modules, the web app's sign-in, the operator page |
+| **Metering** | `record` usage, `startTrial` and `pagesLeft` for a lawyer, `chargePages` and `givePagesBack` for a case file, `costs` of a month. `Plans`: a lawyer's plan view, the Checkout and billing portal URLs, and the billing webhook | Cost per provider and unit, the monthly page-quota window (`Month`, in São Paulo), the page quota of each plan, which billing state means Pro, stale and repeated webhooks | The other three modules, the web app's sign-in, plan page and Stripe webhook, the operator page |
 
 Each module is a folder whose `index.ts` is its whole interface. Code outside the folder imports only from `index.ts`; a lint rule (`no-restricted-imports` on deep paths) enforces it.
 
@@ -173,6 +175,20 @@ export class Metering {
   pagesLeft(lawyer: LawyerId): Promise<number>;
   /** Checks and charges in one transaction; throws QuotaExceeded. Idempotent per case file. */
   chargePages(lawyer: LawyerId, caseFileId: CaseFileId, pages: number): Promise<void>;
+  /** For the operator: cost per lawyer and per case file, by usage kind, most expensive first. */
+  costs(month: Month): Promise<CostReport>;
+}
+
+// packages/core/src/metering/plans.ts, exported from metering/index.ts
+export class Plans {
+  constructor(deps: { uow: UnitOfWork; billing: Billing; metering: Metering });
+  view(lawyer: LawyerId): Promise<PlanView>; // plan, page quota, pages left, whether they have billing to manage
+  /** Trial: Checkout for Pro. Already on another plan: the billing portal, so no one pays twice. */
+  checkoutUrl(lawyer: LawyerId, email: string, returnUrl: string): Promise<string>;
+  /** Throws NotFound for a lawyer who never paid. */
+  portalUrl(lawyer: LawyerId, returnUrl: string): Promise<string>;
+  /** Paying: Pro and its page quota; not paying: Trial. A change older than the last one applied is ignored, so a repeat or a late event changes nothing. Throws InvalidWebhook. */
+  receiveWebhook(payload: string, signature: string): Promise<void>;
 }
 ```
 
@@ -212,6 +228,7 @@ Each port is a real seam: it has a production adapter and an in-memory fake used
 | `MapExtractor` | Reads a window of pages and returns peças and facts | Claude Haiku 5.5, one Messages call per window with structured output | Scripted peças and facts |
 | `Jobs` | Starts ingestion of a case file | Trigger.dev, with the case file id as the idempotency key, in both adapter modes (ADR-0009) | Inline: runs `Ingestion.ingest` in-process and returns at once (the E2E server, `CONSTA_JOBS=inline`). Recording: records the request only (tests that run the steps themselves) |
 | `Mailer` | Sends a templated email | Resend | In-memory outbox |
+| `Billing` | Hosted Checkout for Pro and the billing portal; reads a signed webhook as a plan change | Stripe Checkout and Customer Portal. Checkout puts the lawyer's id in the subscription's metadata, so each subscription event names its lawyer | Stripe-like URLs that E2E intercepts in the browser; webhooks signed with a hash. Used in fake mode unless `STRIPE_SECRET_KEY` is set |
 | Repositories (one per module) | Read and write the module's tables, including hybrid search | Drizzle on Postgres | In-memory tables |
 | `UnitOfWork` | Runs work in one transaction with repositories bound to it | Drizzle transaction | Copies the in-memory state and restores it if the work throws |
 
@@ -271,7 +288,7 @@ packages/
     src/shared/        ids, value types and errors shared by the modules
     src/ports/         port types and their in-memory fakes
     src/db/            Drizzle schema, migrations, hybrid search SQL
-  adapters/            r2-s3, voyage, anthropic, resend, trigger-jobs
+  adapters/            r2-s3, voyage, anthropic, resend, trigger-jobs, stripe
   evals/               quality runs against real adapters; they cost money, so they run by hand
 ```
 

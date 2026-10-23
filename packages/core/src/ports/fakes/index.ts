@@ -5,5 +5,6 @@ export { FakeCitingModel } from "./citing-model";
 export { FakeMapExtractor } from "./map-extractor";
 export { InlineJobs, RecordingJobs } from "./jobs";
 export { InMemoryMailer } from "./mailer";
+export { FakeBilling } from "./billing";
 export { InMemoryUnitOfWork } from "./unit-of-work";
 export type { InMemoryState } from "./unit-of-work";

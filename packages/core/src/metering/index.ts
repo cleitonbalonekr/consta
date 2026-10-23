@@ -1,6 +1,15 @@
 import type { UnitOfWork, Usage } from "../ports";
 import { QuotaExceeded } from "../shared";
-import type { CaseFileId, LawyerId, Plan } from "../shared";
+import type { CaseFileId, LawyerId, Plan, UsageKind } from "../shared";
+import { CostTotals } from "./cost-totals";
+import type { CostsByKind } from "./cost-totals";
+import { Month } from "./month";
+import { PAGE_QUOTAS } from "./page-quotas";
+
+export { Month };
+export { Plans } from "./plans";
+export type { PlansDeps, PlanView } from "./plans";
+export type { CostsByKind };
 
 /** Metering's tables, behind a port so Metering holds no SQL (ADR-0006). */
 export interface MeteringRepository {
@@ -13,6 +22,14 @@ export interface MeteringRepository {
   lockPlan(lawyer: LawyerId): Promise<LawyerPlan | null>;
   /** Stores the plan unless the lawyer already has one. */
   insertPlanIfMissing(lawyer: LawyerId, plan: LawyerPlan): Promise<void>;
+  /**
+   * Replaces the lawyer's plan with one the payment provider reported at `at`, and keeps
+   * their billing customer. Does nothing for a lawyer without a plan, or whose plan
+   * changed after `at`: events can arrive out of order.
+   */
+  changePlan(lawyer: LawyerId, plan: LawyerPlan, change: { billingCustomer: string; at: Date }): Promise<void>;
+  /** The payment provider's customer of a lawyer who has paid, or null. */
+  billingCustomer(lawyer: LawyerId): Promise<string | null>;
   /** Pages charged to the lawyer at or after `since`. */
   pagesChargedSince(lawyer: LawyerId, since: Date): Promise<number>;
   isCharged(caseFileId: CaseFileId): Promise<boolean>;
@@ -22,16 +39,37 @@ export interface MeteringRepository {
   deleteCharge(caseFileId: CaseFileId): Promise<void>;
   /** Stores one row per provider call. */
   insertUsage(lawyer: LawyerId, caseFileId: CaseFileId | null, usage: Usage[]): Promise<void>;
+  /** The cost of the usage at or after `since` and before `until`, summed per lawyer, case file and kind, in no order. */
+  costsBetween(since: Date, until: Date): Promise<UsageCost[]>;
 }
+
+/** `caseFileId` and `caseFileName` are null for usage without a case file, or whose case file was deleted. */
+export type UsageCost = {
+  lawyer: LawyerId;
+  email: string;
+  caseFileId: CaseFileId | null;
+  caseFileName: string | null;
+  kind: UsageKind;
+  costUsd: number;
+};
+
+/** What paid providers cost in one month, for the operator. Lawyers and case files come most expensive first. */
+export type CostReport = {
+  month: Month;
+  total: CostsByKind;
+  lawyers: Array<{
+    lawyer: LawyerId;
+    email: string;
+    costs: CostsByKind;
+    caseFiles: Array<{ caseFileId: CaseFileId | null; name: string | null; costs: CostsByKind }>;
+  }>;
+};
 
 export type LawyerPlan = { plan: Plan; pageQuota: number };
 
 export type QuotaCharge = { lawyer: LawyerId; caseFileId: CaseFileId; pages: number };
 
 export type MeteringDeps = { uow: UnitOfWork; now?: () => Date };
-
-/** prd-mvp.md, Monetization: a Trial covers one case file of up to 500 pages. */
-const TRIAL_PAGE_QUOTA = 500;
 
 /** Records what paid providers cost and how much of a lawyer's page quota is left. */
 export class Metering {
@@ -54,7 +92,7 @@ export class Metering {
    * first sign-in; a lawyer who already has a plan keeps it.
    */
   async startTrial(lawyer: LawyerId): Promise<void> {
-    await this.uow.run((repos) => repos.metering.insertPlanIfMissing(lawyer, { plan: "trial", pageQuota: TRIAL_PAGE_QUOTA }));
+    await this.uow.run((repos) => repos.metering.insertPlanIfMissing(lawyer, { plan: "trial", pageQuota: PAGE_QUOTAS.trial }));
   }
 
   /**
@@ -80,6 +118,24 @@ export class Metering {
     });
   }
 
+  /** What paid providers cost in a month, per lawyer and per case file, by usage kind. */
+  async costs(month: Month): Promise<CostReport> {
+    const rows = await this.uow.run((repos) => repos.metering.costsBetween(month.start, month.end));
+    const lawyers = [...groupBy(rows, (row) => row.lawyer)].map(([lawyer, ofLawyer]) => ({
+      lawyer,
+      email: ofLawyer[0].email,
+      costs: CostTotals.of(ofLawyer).costs(),
+      caseFiles: mostExpensiveFirst(
+        [...groupBy(ofLawyer, (row) => row.caseFileId)].map(([caseFileId, ofCaseFile]) => ({
+          caseFileId,
+          name: ofCaseFile[0].caseFileName,
+          costs: CostTotals.of(ofCaseFile).costs(),
+        })),
+      ),
+    }));
+    return { month, total: CostTotals.of(rows).costs(), lawyers: mostExpensiveFirst(lawyers) };
+  }
+
   /** A case file whose ingestion failed gives its pages back. Idempotent. */
   async givePagesBack(caseFileId: CaseFileId): Promise<void> {
     await this.uow.run((repos) => repos.metering.deleteCharge(caseFileId));
@@ -87,25 +143,21 @@ export class Metering {
 
   private async left(metering: MeteringRepository, lawyer: LawyerId, plan: LawyerPlan | null) {
     if (!plan) return 0;
-    return plan.pageQuota - (await metering.pagesChargedSince(lawyer, startOfMonthInSaoPaulo(this.now())));
+    return plan.pageQuota - (await metering.pagesChargedSince(lawyer, Month.of(this.now()).start));
   }
 }
 
-const SAO_PAULO = "America/Sao_Paulo";
-
-/** Lawyers are in Brazil, so the monthly quota renews at midnight in São Paulo. */
-function startOfMonthInSaoPaulo(moment: Date): Date {
-  const parts = new Intl.DateTimeFormat("en-US", { timeZone: SAO_PAULO, year: "numeric", month: "numeric" }).formatToParts(moment);
-  const part = (type: "year" | "month") => Number(parts.find((p) => p.type === type)!.value);
-  const midnightAsUtc = Date.UTC(part("year"), part("month") - 1, 1);
-  return new Date(midnightAsUtc - offsetMs(midnightAsUtc));
+/** Each group's rows in the order they came, groups in the order their first row came. */
+function groupBy<T, K>(rows: T[], key: (row: T) => K): Map<K, [T, ...T[]]> {
+  const groups = new Map<K, [T, ...T[]]>();
+  for (const row of rows) {
+    const group = groups.get(key(row));
+    if (group) group.push(row);
+    else groups.set(key(row), [row]);
+  }
+  return groups;
 }
 
-/** São Paulo's offset from UTC at a moment, e.g. -3 hours as -10_800_000. */
-function offsetMs(moment: number) {
-  const name = new Intl.DateTimeFormat("en-US", { timeZone: SAO_PAULO, timeZoneName: "longOffset" })
-    .formatToParts(moment)
-    .find((p) => p.type === "timeZoneName")!.value; // "GMT-03:00"
-  const [, sign, hours, minutes] = /GMT([+-])(\d{2}):(\d{2})/.exec(name)!;
-  return (sign === "-" ? -1 : 1) * (Number(hours) * 60 + Number(minutes)) * 60_000;
+function mostExpensiveFirst<T extends { costs: CostsByKind }>(items: T[]): T[] {
+  return [...items].sort((a, b) => b.costs.total - a.costs.total);
 }

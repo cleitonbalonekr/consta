@@ -97,3 +97,7 @@ export type ScopeKind = (typeof scopeKinds)[number];
 
 export const quickActions = ["timeline", "people", "amounts"] as const;
 export type QuickAction = (typeof quickActions)[number];
+
+/** What a paid provider call was for, in the order the operator's cost page shows them. */
+export const usageKinds = ["ocr", "embed", "rerank", "extract", "answer"] as const;
+export type UsageKind = (typeof usageKinds)[number];

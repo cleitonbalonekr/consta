@@ -1,7 +1,7 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { finishUpload, signUploadPart, startUpload, uploadedParts } from "@/app/actions";
+import { finishUpload, signUploadPart, startUpload, upgradeToPro, uploadedParts } from "@/app/actions";
 import { countPages } from "@/lib/pdf";
 import { UploadCaseFile } from "./upload-case-file";
 
@@ -13,6 +13,7 @@ vi.mock("@/app/actions", () => ({
   signUploadPart: vi.fn(),
   uploadedParts: vi.fn(),
   finishUpload: vi.fn(),
+  upgradeToPro: vi.fn(),
 }));
 
 const PART_BYTES = 10 * 1024 * 1024;
@@ -44,8 +45,8 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-async function pick(file: File) {
-  render(<UploadCaseFile />);
+async function pick(file: File, pro: { pageQuota: number } | null = null) {
+  render(<UploadCaseFile pro={pro} />);
   await userEvent.upload(screen.getByLabelText(/Arraste o PDF/), file);
 }
 
@@ -67,6 +68,24 @@ describe("UploadCaseFile", () => {
     expect(screen.getByRole("alert").textContent).toContain("Estes autos têm 600 páginas e restam 500 páginas");
     expect(screen.getByRole("alert").textContent).toContain("Nada foi enviado.");
     expect(putParts).toEqual([]);
+  });
+
+  it("offers a lawyer on Trial to pay for Pro when the quota can't cover the case file", async () => {
+    vi.mocked(startUpload).mockResolvedValue({ ok: false, reason: "quota-exceeded", pagesNeeded: 600, pagesLeft: 500 });
+    await pick(threeParts(), { pageQuota: 5_000 });
+
+    expect(screen.getByRole("alert").textContent).toContain("O plano Pro cobre 5.000 páginas por mês.");
+    await userEvent.click(screen.getByRole("button", { name: "Assinar o Pro" }));
+
+    expect(upgradeToPro).toHaveBeenCalled();
+  });
+
+  it("offers no upgrade to a lawyer who can't upgrade", async () => {
+    vi.mocked(startUpload).mockResolvedValue({ ok: false, reason: "quota-exceeded", pagesNeeded: 6_000, pagesLeft: 500 });
+
+    await pick(threeParts(), null);
+
+    expect(screen.queryByRole("button", { name: "Assinar o Pro" })).toBeNull();
   });
 
   it("explains the page limit and the size limit", async () => {

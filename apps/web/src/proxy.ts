@@ -13,6 +13,6 @@ export function proxy(request: NextRequest) {
 }
 
 export const config = {
-  // Every route but sign-in, Better Auth's routes, the health check and static files.
-  matcher: ["/((?!entrar$|api/auth/|api/health$|_next/static/|_next/image|favicon\\.ico$).*)"],
+  // Every route but sign-in, Better Auth's routes, the health check, Stripe's webhook and static files.
+  matcher: ["/((?!entrar$|api/auth/|api/health$|api/billing/webhook$|_next/static/|_next/image|favicon\\.ico$).*)"],
 };

@@ -12,7 +12,7 @@ Ask questions about a very large Brazilian case file; every statement in the ans
 apps/web            Next.js app (composition root: src/server/container.ts)
 apps/jobs           Trigger.dev tasks for ingestion
 packages/core       modules (case-files, ingestion, answering, metering), ports, fakes, database schema
-packages/adapters   vendor adapters (R2/S3, Voyage, Claude, Resend, Trigger.dev)
+packages/adapters   vendor adapters (R2/S3, Voyage, Claude, Resend, Trigger.dev, Stripe)
 packages/evals      quality runs against real providers (run by hand)
 ```
 
@@ -40,6 +40,25 @@ The app always uses the real modules on Postgres and MinIO, and it always sends 
 Sign in with an email address. With fake adapters, the app does not send email. The terminal that runs `pnpm dev` shows the sign-in link as `Sign-in link for <email>: <url>`. Open this link to go to your case files.
 
 After an upload, the "View runs" link of `pnpm dev:jobs` shows the `ingest-case-file` run. Until ticket 05, this run fails, because Ingestion is not implemented yet, and the case file stays at "queued".
+
+### Operator cost page
+
+`/operador/custos` shows what the paid providers cost per lawyer and per case file, for one month. Only the emails in `OPERATOR_EMAILS` (comma-separated) can open it; anyone else gets a 404. With fake adapters every cost is 0 USD, but the rows still appear.
+
+### Plans and billing with Stripe
+
+Without Stripe keys, the "Assinar o Pro" buttons lead to a fake Checkout URL. To pay with Stripe's test mode:
+
+1. In the Stripe dashboard, in test mode, create a product "Consta Pro" with a monthly price. Copy the price id (`price_...`) into `STRIPE_PRO_PRICE_ID`, and the test secret key (`sk_test_...`) into `STRIPE_SECRET_KEY`.
+2. Turn on the Customer Portal (Settings, Billing, Customer portal) with card updates and cancellation.
+3. Install the Stripe CLI, run `stripe login`, then forward webhooks to the app:
+
+   ```sh
+   stripe listen --events customer.subscription.created,customer.subscription.updated,customer.subscription.deleted --forward-to localhost:3000/api/billing/webhook
+   ```
+
+   Copy the signing secret it prints (`whsec_...`) into `STRIPE_WEBHOOK_SECRET`, then restart `pnpm dev`.
+4. Pay with the test card `4242 4242 4242 4242`. Back on `/plano`, reload to see Pro once the webhook arrives.
 
 To change a setting, edit `.env`. The MinIO console is at http://localhost:9001 (user `consta`, password `consta-secret`).
 

@@ -6,7 +6,7 @@ import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { SIGN_IN_PATH } from "@/lib/routes";
 import { container } from "@/server/container";
-import { currentLawyer } from "@/server/lawyer";
+import { currentLawyerWithEmail, currentLawyer } from "@/server/lawyer";
 
 /** Why a case file was refused. The lawyer sees each one; nothing else is a refusal. */
 export type UploadRefusal =
@@ -61,10 +61,31 @@ export async function removeCaseFile(caseFileId: string): Promise<void> {
   revalidatePath("/");
 }
 
+/** Where Stripe sends the lawyer back to, after Checkout or the billing portal. */
+const PLAN_PATH = "/plano";
+
+/** Sends a lawyer on Trial to Stripe Checkout to pay for Pro; one already paying goes to the billing portal. */
+export async function upgradeToPro(): Promise<void> {
+  const { id, email } = await currentLawyerWithEmail();
+  redirect(await container().plans.checkoutUrl(id, email, await appUrl(PLAN_PATH)));
+}
+
+/** Sends a lawyer who has paid to the Stripe billing portal, to change their card or cancel. */
+export async function manageBilling(): Promise<void> {
+  redirect(await container().plans.portalUrl(await currentLawyer(), await appUrl(PLAN_PATH)));
+}
+
 /** Ends the lawyer's session and returns to sign-in. */
 export async function signOut(): Promise<void> {
   await container().auth.api.signOut({ headers: await headers() });
   redirect(SIGN_IN_PATH);
+}
+
+/** An absolute URL of this app. Browsers send Origin with every server action. */
+async function appUrl(path: string): Promise<string> {
+  const origin = (await headers()).get("origin");
+  if (!origin) throw new TypeError("A server action request must carry an Origin header.");
+  return new URL(path, origin).toString();
 }
 
 function refusal(error: unknown): UploadRefusal {

@@ -18,7 +18,8 @@
     "@aws-sdk/client-s3": "^3.1149.0",
     "@aws-sdk/s3-request-presigner": "^3.1149.0",
     "@consta/core": "workspace:*",
-    "@trigger.dev/sdk": "^4.7.2"
+    "@trigger.dev/sdk": "^4.7.2",
+    "stripe": "23.0.0"
   },
   "devDependencies": {
     "vitest": "^5.0.3"

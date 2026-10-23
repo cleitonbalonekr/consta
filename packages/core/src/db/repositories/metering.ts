@@ -1,7 +1,7 @@
-import { and, eq, gte, sum } from "drizzle-orm";
+import { and, eq, gte, isNull, lt, lte, or, sum } from "drizzle-orm";
 import type { LawyerPlan, MeteringRepository, QuotaCharge } from "../../metering";
 import type { Usage } from "../../ports";
-import type { CaseFileId, LawyerId } from "../../shared";
+import { CaseFileId, LawyerId } from "../../shared";
 import type { Db } from "../index";
 import * as schema from "../schema";
 
@@ -26,6 +26,22 @@ export class DrizzleMeteringRepository implements MeteringRepository {
 
   async insertPlanIfMissing(lawyer: LawyerId, { plan, pageQuota }: LawyerPlan) {
     await this.db.insert(schema.lawyerPlan).values({ lawyerId: lawyer, plan, pageQuota }).onConflictDoNothing();
+  }
+
+  async changePlan(lawyer: LawyerId, { plan, pageQuota }: LawyerPlan, { billingCustomer, at }: { billingCustomer: string; at: Date }) {
+    const { lawyerPlan } = schema;
+    await this.db
+      .update(lawyerPlan)
+      .set({ plan, pageQuota, billingCustomer, planChangedAt: at })
+      .where(and(eq(lawyerPlan.lawyerId, lawyer), or(isNull(lawyerPlan.planChangedAt), lte(lawyerPlan.planChangedAt, at))));
+  }
+
+  async billingCustomer(lawyer: LawyerId) {
+    const [row] = await this.db
+      .select({ billingCustomer: schema.lawyerPlan.billingCustomer })
+      .from(schema.lawyerPlan)
+      .where(eq(schema.lawyerPlan.lawyerId, lawyer));
+    return row?.billingCustomer ?? null;
   }
 
   async pagesChargedSince(lawyer: LawyerId, since: Date) {
@@ -60,5 +76,30 @@ export class DrizzleMeteringRepository implements MeteringRepository {
     await this.db.insert(schema.usageEvent).values(
       usage.map(({ costUsd, ...event }) => ({ ...event, lawyerId: lawyer, caseFileId, costUsd: String(costUsd) })),
     );
+  }
+
+  async costsBetween(since: Date, until: Date) {
+    const { usageEvent, user, caseFile } = schema;
+    const rows = await this.db
+      .select({
+        lawyer: usageEvent.lawyerId,
+        email: user.email,
+        caseFileId: usageEvent.caseFileId,
+        caseFileName: caseFile.name,
+        kind: usageEvent.kind,
+        costUsd: sum(usageEvent.costUsd).mapWith(Number),
+      })
+      .from(usageEvent)
+      .leftJoin(user, eq(user.id, usageEvent.lawyerId))
+      .leftJoin(caseFile, eq(caseFile.id, usageEvent.caseFileId))
+      .where(and(gte(usageEvent.createdAt, since), lt(usageEvent.createdAt, until)))
+      .groupBy(usageEvent.lawyerId, user.email, usageEvent.caseFileId, caseFile.name, usageEvent.kind);
+    return rows.map((row) => ({
+      ...row,
+      lawyer: LawyerId(row.lawyer),
+      // usage_event has no foreign key to the lawyer, so a deleted lawyer's costs stay, without an email.
+      email: row.email ?? "",
+      caseFileId: row.caseFileId === null ? null : CaseFileId(row.caseFileId),
+    }));
   }
 }

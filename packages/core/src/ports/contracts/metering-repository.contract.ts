@@ -1,14 +1,18 @@
 import { describe, expect, it } from "vitest";
+import { CaseFile, FileSize, PageCount } from "../../case-files";
 import { CaseFileId } from "../../shared";
-import type { LawyerId } from "../../shared";
+import type { LawyerId, UsageKind } from "../../shared";
 import type { UnitOfWork } from "../unit-of-work";
 
 export type MeteringRepositorySetup = () => Promise<{
   uow: UnitOfWork;
+  /** A lawyer whose email is `<id>@example.com`. */
   newLawyer: () => Promise<LawyerId>;
   /** Seeds a quota charge at a given moment, which insertCharge can't choose. */
   addCharge: (lawyer: LawyerId, pages: number, createdAt: Date) => Promise<void>;
-  /** Every stored usage row, which no repository method reads yet. */
+  /** Seeds a usage row at a given moment, which insertUsage can't choose. */
+  addUsage: (lawyer: LawyerId, caseFileId: CaseFileId | null, kind: UsageKind, costUsd: number, createdAt: Date) => Promise<void>;
+  /** Every stored usage row. */
   usageRows: () => Promise<Array<{ lawyer: LawyerId; caseFileId: CaseFileId | null; kind: string; units: number; costUsd: number }>>;
 }>;
 
@@ -44,6 +48,43 @@ export function meteringRepositoryContract(setup: MeteringRepositorySetup) {
       await addCharge(other, 70, new Date("2026-09-20T12:00:00Z"));
 
       expect(await uow.run((repos) => repos.metering.pagesChargedSince(lawyer, since))).toBe(150);
+    });
+
+    it("changes a lawyer's plan and keeps their billing customer", async () => {
+      const { uow, newLawyer } = await setup();
+      const lawyer = await newLawyer();
+      await uow.run((repos) => repos.metering.insertPlanIfMissing(lawyer, { plan: "trial", pageQuota: 500 }));
+
+      await uow.run((repos) => repos.metering.changePlan(lawyer, { plan: "pro", pageQuota: 5_000 }, { billingCustomer: "cus_1", at: new Date("2026-10-15T12:00:00Z") }));
+
+      expect(await uow.run((repos) => repos.metering.findPlan(lawyer))).toEqual({ plan: "pro", pageQuota: 5_000 });
+      expect(await uow.run((repos) => repos.metering.billingCustomer(lawyer))).toBe("cus_1");
+    });
+
+    it("keeps a plan changed later than the change it is given, and applies one at the same moment", async () => {
+      const { uow, newLawyer } = await setup();
+      const lawyer = await newLawyer();
+      const at = new Date("2026-10-16T12:00:00Z");
+      await uow.run(async ({ metering }) => {
+        await metering.insertPlanIfMissing(lawyer, { plan: "trial", pageQuota: 500 });
+        await metering.changePlan(lawyer, { plan: "trial", pageQuota: 500 }, { billingCustomer: "cus_1", at });
+      });
+
+      await uow.run((repos) => repos.metering.changePlan(lawyer, { plan: "pro", pageQuota: 5_000 }, { billingCustomer: "cus_1", at: new Date("2026-10-15T12:00:00Z") }));
+      expect(await uow.run((repos) => repos.metering.findPlan(lawyer))).toEqual({ plan: "trial", pageQuota: 500 });
+
+      await uow.run((repos) => repos.metering.changePlan(lawyer, { plan: "pro", pageQuota: 5_000 }, { billingCustomer: "cus_1", at }));
+      expect(await uow.run((repos) => repos.metering.findPlan(lawyer))).toEqual({ plan: "pro", pageQuota: 5_000 });
+    });
+
+    it("changes no plan for a lawyer who has none", async () => {
+      const { uow, newLawyer } = await setup();
+      const lawyer = await newLawyer();
+
+      await uow.run((repos) => repos.metering.changePlan(lawyer, { plan: "pro", pageQuota: 5_000 }, { billingCustomer: "cus_1", at: new Date() }));
+
+      expect(await uow.run((repos) => repos.metering.findPlan(lawyer))).toBeNull();
+      expect(await uow.run((repos) => repos.metering.billingCustomer(lawyer))).toBeNull();
     });
 
     it("sums no pages for a lawyer without charges", async () => {
@@ -113,6 +154,41 @@ export function meteringRepositoryContract(setup: MeteringRepositorySetup) {
         { lawyer, caseFileId: null, kind: "embed", units: 1_200, costUsd: 0.000024 },
         { lawyer, caseFileId: null, kind: "embed", units: 50, costUsd: 0.000001 },
       ]);
+    });
+
+    it("sums the cost of the usage in a window per lawyer, case file and kind, with the lawyer's email and the case file's name", async () => {
+      const { uow, newLawyer, addUsage } = await setup();
+      const [ana, bia] = [await newLawyer(), await newLawyer()];
+      const id = CaseFileId(crypto.randomUUID());
+      const caseFile = CaseFile.start({
+        id,
+        lawyer: ana,
+        name: "Autos 123.pdf",
+        storageKey: `case-files/${id}.pdf`,
+        uploadId: "upload-1",
+        size: FileSize.from(2_048),
+        pages: PageCount.from(10),
+        createdAt: new Date("2026-10-01T12:00:00Z"),
+      });
+      await uow.run((repos) => repos.caseFiles.save(caseFile));
+      const [since, until] = [new Date("2026-10-01T03:00:00Z"), new Date("2026-11-01T03:00:00Z")];
+      await addUsage(ana, id, "embed", 0.000024, since);
+      await addUsage(ana, id, "embed", 0.000006, new Date("2026-10-15T12:00:00Z"));
+      await addUsage(ana, id, "answer", 0.0125, new Date("2026-10-15T12:00:00Z"));
+      await addUsage(bia, null, "answer", 0.5, new Date("2026-10-15T12:00:00Z"));
+      await addUsage(ana, id, "answer", 9, new Date("2026-10-01T02:59:59Z"));
+      await addUsage(ana, id, "answer", 9, until);
+
+      const costs = await uow.run((repos) => repos.metering.costsBetween(since, until));
+
+      const byKey = (a: { email: string; kind: string }, b: { email: string; kind: string }) => `${a.email}${a.kind}`.localeCompare(`${b.email}${b.kind}`);
+      expect(costs.sort(byKey)).toEqual(
+        [
+          { lawyer: ana, email: `${ana}@example.com`, caseFileId: id, caseFileName: "Autos 123.pdf", kind: "answer", costUsd: 0.0125 },
+          { lawyer: ana, email: `${ana}@example.com`, caseFileId: id, caseFileName: "Autos 123.pdf", kind: "embed", costUsd: 0.00003 },
+          { lawyer: bia, email: `${bia}@example.com`, caseFileId: null, caseFileName: null, kind: "answer", costUsd: 0.5 },
+        ].sort(byKey),
+      );
     });
   });
 }

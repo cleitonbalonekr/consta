@@ -1,5 +1,5 @@
 import "server-only";
-import { Answering, CaseFiles, Ingestion, Metering } from "@consta/core";
+import { Answering, CaseFiles, Ingestion, Metering, Plans } from "@consta/core";
 import { createDb, DrizzleUnitOfWork } from "@consta/core/db";
 import { AdaptersFromEnv } from "@consta/adapters";
 import { createAuth } from "./auth";
@@ -8,6 +8,9 @@ import type { Auth } from "./auth";
 type Container = {
   caseFiles: CaseFiles;
   answering: Answering;
+  /** For the operator's cost page only; lawyers' screens reach Metering through the other modules. */
+  metering: Metering;
+  plans: Plans;
   auth: Auth;
 };
 
@@ -17,7 +20,8 @@ let built: Container | undefined;
  * Composition root for the web runtime: the modules on Postgres and S3 (Docker
  * Compose locally). With CONSTA_ADAPTERS=fake, the paid services are fakes;
  * ingestion still goes to Trigger.dev (`pnpm dev:jobs` locally), except with
- * CONSTA_JOBS=inline, where this process runs it (the E2E server).
+ * CONSTA_JOBS=inline, where this process runs it (the E2E server). Billing is Stripe
+ * when STRIPE_SECRET_KEY is set, also in fake mode, and otherwise a fake there.
  * Better Auth reads BETTER_AUTH_SECRET and BETTER_AUTH_URL itself.
  */
 export function container(): Container {
@@ -39,6 +43,8 @@ function buildContainer(): Container {
   return {
     caseFiles: new CaseFiles({ uow, files: adapters.files, jobs, metering }),
     answering: new Answering({ uow, metering, embedder: adapters.embedder, reranker: adapters.reranker, model: adapters.model }),
+    metering,
+    plans: new Plans({ uow, billing: adapters.billing, metering }),
     auth: createAuth({ db, mailer: adapters.mailer, metering, limitSignIns: !adapters.fake }),
   };
 }

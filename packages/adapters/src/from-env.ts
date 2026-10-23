@@ -1,10 +1,11 @@
 import { EMBEDDING_DIMENSIONS } from "@consta/core/db";
-import { FakeCitingModel, FakeEmbedder, FakeMapExtractor, FakeReranker, InlineJobs, InMemoryMailer } from "@consta/core/fakes";
+import { FakeBilling, FakeCitingModel, FakeEmbedder, FakeMapExtractor, FakeReranker, InlineJobs, InMemoryMailer } from "@consta/core/fakes";
 import type { CaseFileId } from "@consta/core";
-import type { CitingModel, Embedder, FileStore, Jobs, Mailer, MapExtractor, Reranker } from "@consta/core/ports";
+import type { Billing, CitingModel, Embedder, FileStore, Jobs, Mailer, MapExtractor, Reranker } from "@consta/core/ports";
 import { ClaudeCitingModel, ClaudeMapExtractor } from "./anthropic";
 import { createResendMailer } from "./resend-mailer";
 import { S3FileStore } from "./s3-file-store";
+import { StripeBilling } from "./stripe";
 import { TriggerJobs } from "./trigger-jobs";
 import { VoyageEmbedder, VoyageReranker } from "./voyage";
 
@@ -85,6 +86,22 @@ export class AdaptersFromEnv {
       this.fake
         ? new InMemoryMailer(console.info)
         : createResendMailer({ apiKey: this.required("RESEND_API_KEY"), from: this.env.EMAIL_FROM ?? "Consta <noreply@consta.app>" }),
+    );
+  }
+
+  /**
+   * Stripe whenever STRIPE_SECRET_KEY is set, so fake mode runs with Stripe's test keys and
+   * `stripe listen` locally. Without it, fake mode uses the fake, whose Checkout URLs lead nowhere.
+   */
+  get billing(): Billing {
+    return this.once("billing", () =>
+      this.fake && !this.env.STRIPE_SECRET_KEY
+        ? new FakeBilling()
+        : new StripeBilling({
+            secretKey: this.required("STRIPE_SECRET_KEY"),
+            webhookSecret: this.required("STRIPE_WEBHOOK_SECRET"),
+            proPriceId: this.required("STRIPE_PRO_PRICE_ID"),
+          }),
     );
   }
 
