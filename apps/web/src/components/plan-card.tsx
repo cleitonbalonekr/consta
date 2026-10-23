@@ -6,7 +6,7 @@ const PLAN_NAMES: Record<Plan, string> = { trial: "Trial", pro: "Pro", enterpris
 
 const BUTTON = "inline-flex items-center rounded-lg px-3 py-1.5 text-sm font-medium transition-opacity hover:opacity-90";
 
-/** The lawyer's plan and page quota; Trial offers Pro, and a lawyer who has paid manages billing in Stripe. */
+/** The lawyer's plan and page quota; Trial offers Pro, and a lawyer who has opened Checkout manages billing in Stripe. */
 export function PlanCard({ plan }: { plan: PlanView }) {
   return (
     <section className="rounded-2xl border border-line bg-surface p-6 shadow-card">

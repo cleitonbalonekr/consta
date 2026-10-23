@@ -1,4 +1,4 @@
-import { and, eq, gte, isNull, lt, lte, or, sum } from "drizzle-orm";
+import { and, eq, gte, lt, sum } from "drizzle-orm";
 import type { LawyerPlan, MeteringRepository, QuotaCharge } from "../../metering";
 import type { Usage } from "../../ports";
 import { CaseFileId, LawyerId } from "../../shared";
@@ -28,12 +28,8 @@ export class DrizzleMeteringRepository implements MeteringRepository {
     await this.db.insert(schema.lawyerPlan).values({ lawyerId: lawyer, plan, pageQuota }).onConflictDoNothing();
   }
 
-  async changePlan(lawyer: LawyerId, { plan, pageQuota }: LawyerPlan, { billingCustomer, at }: { billingCustomer: string; at: Date }) {
-    const { lawyerPlan } = schema;
-    await this.db
-      .update(lawyerPlan)
-      .set({ plan, pageQuota, billingCustomer, planChangedAt: at })
-      .where(and(eq(lawyerPlan.lawyerId, lawyer), or(isNull(lawyerPlan.planChangedAt), lte(lawyerPlan.planChangedAt, at))));
+  async changePlan(lawyer: LawyerId, { plan, pageQuota }: LawyerPlan) {
+    await this.db.update(schema.lawyerPlan).set({ plan, pageQuota }).where(eq(schema.lawyerPlan.lawyerId, lawyer));
   }
 
   async billingCustomer(lawyer: LawyerId) {
@@ -42,6 +38,18 @@ export class DrizzleMeteringRepository implements MeteringRepository {
       .from(schema.lawyerPlan)
       .where(eq(schema.lawyerPlan.lawyerId, lawyer));
     return row?.billingCustomer ?? null;
+  }
+
+  async setBillingCustomer(lawyer: LawyerId, billingCustomer: string) {
+    await this.db.update(schema.lawyerPlan).set({ billingCustomer }).where(eq(schema.lawyerPlan.lawyerId, lawyer));
+  }
+
+  async lawyerOfBillingCustomer(billingCustomer: string) {
+    const [row] = await this.db
+      .select({ lawyerId: schema.lawyerPlan.lawyerId })
+      .from(schema.lawyerPlan)
+      .where(eq(schema.lawyerPlan.billingCustomer, billingCustomer));
+    return row ? LawyerId(row.lawyerId) : null;
   }
 
   async pagesChargedSince(lawyer: LawyerId, since: Date) {

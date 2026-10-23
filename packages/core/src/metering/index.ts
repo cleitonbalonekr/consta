@@ -1,10 +1,10 @@
 import type { UnitOfWork, Usage } from "../ports";
 import { QuotaExceeded } from "../shared";
 import type { CaseFileId, LawyerId, Plan, UsageKind } from "../shared";
-import { CostTotals } from "./cost-totals";
 import type { CostsByKind } from "./cost-totals";
 import { Month } from "./month";
 import { PAGE_QUOTAS } from "./page-quotas";
+import { UsageCosts } from "./usage-costs";
 
 export { Month };
 export { Plans } from "./plans";
@@ -22,14 +22,14 @@ export interface MeteringRepository {
   lockPlan(lawyer: LawyerId): Promise<LawyerPlan | null>;
   /** Stores the plan unless the lawyer already has one. */
   insertPlanIfMissing(lawyer: LawyerId, plan: LawyerPlan): Promise<void>;
-  /**
-   * Replaces the lawyer's plan with one the payment provider reported at `at`, and keeps
-   * their billing customer. Does nothing for a lawyer without a plan, or whose plan
-   * changed after `at`: events can arrive out of order.
-   */
-  changePlan(lawyer: LawyerId, plan: LawyerPlan, change: { billingCustomer: string; at: Date }): Promise<void>;
-  /** The payment provider's customer of a lawyer who has paid, or null. */
+  /** Replaces the lawyer's plan. Does nothing for a lawyer without one. */
+  changePlan(lawyer: LawyerId, plan: LawyerPlan): Promise<void>;
+  /** The payment provider's customer of a lawyer who has opened Checkout, or null. */
   billingCustomer(lawyer: LawyerId): Promise<string | null>;
+  /** Stores the lawyer's billing customer. */
+  setBillingCustomer(lawyer: LawyerId, billingCustomer: string): Promise<void>;
+  /** The lawyer whose billing customer this is, or null. */
+  lawyerOfBillingCustomer(billingCustomer: string): Promise<LawyerId | null>;
   /** Pages charged to the lawyer at or after `since`. */
   pagesChargedSince(lawyer: LawyerId, since: Date): Promise<number>;
   isCharged(caseFileId: CaseFileId): Promise<boolean>;
@@ -67,6 +67,11 @@ export type CostReport = {
 
 export type LawyerPlan = { plan: Plan; pageQuota: number };
 
+/** `billingCustomer` is null until the lawyer first opens Checkout. */
+export type LawyerAccount = LawyerPlan & { billingCustomer: string | null; pagesLeft: number };
+
+const TRIAL: LawyerPlan = { plan: "trial", pageQuota: PAGE_QUOTAS.trial };
+
 export type QuotaCharge = { lawyer: LawyerId; caseFileId: CaseFileId; pages: number };
 
 export type MeteringDeps = { uow: UnitOfWork; now?: () => Date };
@@ -92,7 +97,22 @@ export class Metering {
    * first sign-in; a lawyer who already has a plan keeps it.
    */
   async startTrial(lawyer: LawyerId): Promise<void> {
-    await this.uow.run((repos) => repos.metering.insertPlanIfMissing(lawyer, { plan: "trial", pageQuota: PAGE_QUOTAS.trial }));
+    await this.uow.run((repos) => repos.metering.insertPlanIfMissing(lawyer, TRIAL));
+  }
+
+  /**
+   * The lawyer's plan, billing customer and pages left this month, in one run. A lawyer
+   * whose sign-up didn't start a Trial (the sign-up hook failed, or came before plans) starts one now.
+   */
+  account(lawyer: LawyerId): Promise<LawyerAccount> {
+    return this.uow.run(async ({ metering }) => {
+      let plan = await metering.findPlan(lawyer);
+      if (!plan) {
+        await metering.insertPlanIfMissing(lawyer, TRIAL);
+        plan = TRIAL;
+      }
+      return { ...plan, billingCustomer: await metering.billingCustomer(lawyer), pagesLeft: await this.left(metering, lawyer, plan) };
+    });
   }
 
   /**
@@ -121,19 +141,7 @@ export class Metering {
   /** What paid providers cost in a month, per lawyer and per case file, by usage kind. */
   async costs(month: Month): Promise<CostReport> {
     const rows = await this.uow.run((repos) => repos.metering.costsBetween(month.start, month.end));
-    const lawyers = [...groupBy(rows, (row) => row.lawyer)].map(([lawyer, ofLawyer]) => ({
-      lawyer,
-      email: ofLawyer[0].email,
-      costs: CostTotals.of(ofLawyer).costs(),
-      caseFiles: mostExpensiveFirst(
-        [...groupBy(ofLawyer, (row) => row.caseFileId)].map(([caseFileId, ofCaseFile]) => ({
-          caseFileId,
-          name: ofCaseFile[0].caseFileName,
-          costs: CostTotals.of(ofCaseFile).costs(),
-        })),
-      ),
-    }));
-    return { month, total: CostTotals.of(rows).costs(), lawyers: mostExpensiveFirst(lawyers) };
+    return new UsageCosts(rows).report(month);
   }
 
   /** A case file whose ingestion failed gives its pages back. Idempotent. */
@@ -147,17 +155,3 @@ export class Metering {
   }
 }
 
-/** Each group's rows in the order they came, groups in the order their first row came. */
-function groupBy<T, K>(rows: T[], key: (row: T) => K): Map<K, [T, ...T[]]> {
-  const groups = new Map<K, [T, ...T[]]>();
-  for (const row of rows) {
-    const group = groups.get(key(row));
-    if (group) group.push(row);
-    else groups.set(key(row), [row]);
-  }
-  return groups;
-}
-
-function mostExpensiveFirst<T extends { costs: CostsByKind }>(items: T[]): T[] {
-  return [...items].sort((a, b) => b.costs.total - a.costs.total);
-}

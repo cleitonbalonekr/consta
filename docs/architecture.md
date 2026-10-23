@@ -61,7 +61,7 @@ The web app's screens only call Case files and Answering, plus `Plans`, the part
 | **Case files** | Start and finish an upload, view, list, get a read URL, remove; a view says whether the case file is still ingesting. `CaseFileLifecycle`: the status changes of ingestion, each safe to run again, and failing, which gives the pages back | Status lifecycle, which statuses count as ingesting, retry-safety of every ingestion step, page-quota check, the pages given back on failure, multipart upload bookkeeping, ownership checks, ordered deletion of every derived row and the stored PDF | `apps/web`; `CaseFileLifecycle` by Ingestion |
 | **Ingestion** | `ingest` runs it all, with a `RangeRunner` that runs the ranges in-process or as Trigger.dev tasks; `ingestRange` for such a runner, `giveUp` when a run dies. Every method is idempotent | The step order, attempts per step and per range, the failure reason, page classification, text and block extraction of digital pages (scanned pages are marked as not read, ADR-0010), folha detection, passage splitting inside a page, embedding, document map windowing and merging, facts, progress, the ready email | `apps/jobs`, the inline `Jobs` adapter |
 | **Answering** | `ask` returns a stream of statements, each with at least one citation | Scope handling, hybrid search and reranking, source blocks per page, token budget, prompt caching, citation-to-page resolution, dropping uncited statements, saving the question, metering | `apps/web` |
-| **Metering** | `record` usage, `startTrial` and `pagesLeft` for a lawyer, `chargePages` and `givePagesBack` for a case file, `costs` of a month. `Plans`: a lawyer's plan view, the Checkout and billing portal URLs, and the billing webhook | Cost per provider and unit, the monthly page-quota window (`Month`, in São Paulo), the page quota of each plan, which billing state means Pro, stale and repeated webhooks | The other three modules, the web app's sign-in, plan page and Stripe webhook, the operator page |
+| **Metering** | `record` usage, `startTrial` and `pagesLeft` for a lawyer, `chargePages` and `givePagesBack` for a case file, `costs` of a month. `Plans`: a lawyer's plan view, the Checkout and billing portal URLs, and the billing webhook | Cost per provider and unit, the monthly page-quota window (`Month`, in São Paulo), the page quota of each plan, which billing state means Pro, one Checkout at a time, stale and repeated webhooks | The other three modules, the web app's sign-in, plan page and Stripe webhook, the operator page |
 
 Each module is a folder whose `index.ts` is its whole interface. Code outside the folder imports only from `index.ts`; a lint rule (`no-restricted-imports` on deep paths) enforces it.
 
@@ -182,12 +182,12 @@ export class Metering {
 // packages/core/src/metering/plans.ts, exported from metering/index.ts
 export class Plans {
   constructor(deps: { uow: UnitOfWork; billing: Billing; metering: Metering });
-  view(lawyer: LawyerId): Promise<PlanView>; // plan, page quota, pages left, whether they have billing to manage
-  /** Trial: Checkout for Pro. Already on another plan: the billing portal, so no one pays twice. */
+  view(lawyer: LawyerId): Promise<PlanView>; // plan, page quota, pages left, whether they have billing to manage; starts a missing Trial
+  /** Trial: a billing customer, then Checkout for Pro. Already paying, even before the webhook: the billing portal, so no one pays twice. Throws NotOnTrial for a plan set outside Checkout. */
   checkoutUrl(lawyer: LawyerId, email: string, returnUrl: string): Promise<string>;
-  /** Throws NotFound for a lawyer who never paid. */
+  /** Throws NotFound for a lawyer who never opened Checkout. */
   portalUrl(lawyer: LawyerId, returnUrl: string): Promise<string>;
-  /** Paying: Pro and its page quota; not paying: Trial. A change older than the last one applied is ignored, so a repeat or a late event changes nothing. Throws InvalidWebhook. */
+  /** The webhook names a billing customer; whether they pay is read from the provider now, so repeated, late or same-second events end on its current state. Paying: Pro and its page quota; not: Trial. Throws InvalidWebhook. */
   receiveWebhook(payload: string, signature: string): Promise<void>;
 }
 ```
@@ -228,7 +228,7 @@ Each port is a real seam: it has a production adapter and an in-memory fake used
 | `MapExtractor` | Reads a window of pages and returns peças and facts | Claude Haiku 5.5, one Messages call per window with structured output | Scripted peças and facts |
 | `Jobs` | Starts ingestion of a case file | Trigger.dev, with the case file id as the idempotency key, in both adapter modes (ADR-0009) | Inline: runs `Ingestion.ingest` in-process and returns at once (the E2E server, `CONSTA_JOBS=inline`). Recording: records the request only (tests that run the steps themselves) |
 | `Mailer` | Sends a templated email | Resend | In-memory outbox |
-| `Billing` | Hosted Checkout for Pro and the billing portal; reads a signed webhook as a plan change | Stripe Checkout and Customer Portal. Checkout puts the lawyer's id in the subscription's metadata, so each subscription event names its lawyer | Stripe-like URLs that E2E intercepts in the browser; webhooks signed with a hash. Used in fake mode unless `STRIPE_SECRET_KEY` is set |
+| `Billing` | A customer per lawyer, hosted Checkout for Pro and the billing portal, whether a customer pays now; reads a signed webhook as the customer it names | Stripe Customers, Checkout (other open sessions expired first) and Customer Portal; paying is any active, trialing or past-due subscription to Pro's price | Stripe-like URLs that E2E intercepts in the browser; webhooks signed with a per-process secret, so none can be forged. Used in fake mode unless `STRIPE_SECRET_KEY` is set |
 | Repositories (one per module) | Read and write the module's tables, including hybrid search | Drizzle on Postgres | In-memory tables |
 | `UnitOfWork` | Runs work in one transaction with repositories bound to it | Drizzle transaction | Copies the in-memory state and restores it if the work throws |
 

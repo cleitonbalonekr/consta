@@ -60,3 +60,8 @@ export class NotImplemented extends Error {
 export class InvalidWebhook extends DomainError {
   override name = "InvalidWebhook";
 }
+
+/** Only a lawyer on Trial pays for Pro through Checkout; another plan is set by contract or already paid. */
+export class NotOnTrial extends DomainError {
+  override name = "NotOnTrial";
+}

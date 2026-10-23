@@ -25,8 +25,8 @@ export type InMemoryState = {
   answering: { questions: QuestionRecord[] };
   metering: {
     plans: Map<LawyerId, LawyerPlan>;
-    /** The billing side of a plan the payment provider changed. */
-    billing: Map<LawyerId, { billingCustomer: string; changedAt: Date }>;
+    /** Each lawyer's billing customer, once they open Checkout. */
+    billingCustomers: Map<LawyerId, string>;
     charges: { lawyer: LawyerId; caseFileId: CaseFileId | null; pages: number; createdAt: Date }[];
     usage: (Usage & { lawyer: LawyerId; caseFileId: CaseFileId | null; createdAt: Date })[];
   };
@@ -43,7 +43,7 @@ export class InMemoryUnitOfWork implements UnitOfWork {
     caseFiles: new Map(),
     ingestion: { ranges: [], pages: [], passages: [], pecas: [], facts: [] },
     answering: { questions: [] },
-    metering: { plans: new Map(), billing: new Map(), charges: [], usage: [] },
+    metering: { plans: new Map(), billingCustomers: new Map(), charges: [], usage: [] },
   };
   private readonly inRun = new AsyncLocalStorage<true>();
   private readonly repos: Repositories = {
@@ -289,16 +289,23 @@ class InMemoryMeteringRepository implements MeteringRepository {
     if (!plans.has(lawyer)) plans.set(lawyer, { ...plan });
   }
 
-  async changePlan(lawyer: LawyerId, plan: LawyerPlan, { billingCustomer, at }: { billingCustomer: string; at: Date }) {
-    const { plans, billing } = this.state().metering;
-    const changedAt = billing.get(lawyer)?.changedAt;
-    if (!plans.has(lawyer) || (changedAt && changedAt > at)) return;
-    plans.set(lawyer, { ...plan });
-    billing.set(lawyer, { billingCustomer, changedAt: at });
+  async changePlan(lawyer: LawyerId, plan: LawyerPlan) {
+    const { plans } = this.state().metering;
+    if (plans.has(lawyer)) plans.set(lawyer, { ...plan });
   }
 
   async billingCustomer(lawyer: LawyerId) {
-    return this.state().metering.billing.get(lawyer)?.billingCustomer ?? null;
+    return this.state().metering.billingCustomers.get(lawyer) ?? null;
+  }
+
+  async setBillingCustomer(lawyer: LawyerId, billingCustomer: string) {
+    const { plans, billingCustomers } = this.state().metering;
+    if (plans.has(lawyer)) billingCustomers.set(lawyer, billingCustomer);
+  }
+
+  async lawyerOfBillingCustomer(billingCustomer: string) {
+    const entry = [...this.state().metering.billingCustomers].find(([, customer]) => customer === billingCustomer);
+    return entry?.[0] ?? null;
   }
 
   async pagesChargedSince(lawyer: LawyerId, since: Date) {

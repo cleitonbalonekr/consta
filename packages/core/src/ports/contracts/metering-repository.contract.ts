@@ -50,30 +50,13 @@ export function meteringRepositoryContract(setup: MeteringRepositorySetup) {
       expect(await uow.run((repos) => repos.metering.pagesChargedSince(lawyer, since))).toBe(150);
     });
 
-    it("changes a lawyer's plan and keeps their billing customer", async () => {
+    it("changes a lawyer's plan", async () => {
       const { uow, newLawyer } = await setup();
       const lawyer = await newLawyer();
       await uow.run((repos) => repos.metering.insertPlanIfMissing(lawyer, { plan: "trial", pageQuota: 500 }));
 
-      await uow.run((repos) => repos.metering.changePlan(lawyer, { plan: "pro", pageQuota: 5_000 }, { billingCustomer: "cus_1", at: new Date("2026-10-15T12:00:00Z") }));
+      await uow.run((repos) => repos.metering.changePlan(lawyer, { plan: "pro", pageQuota: 5_000 }));
 
-      expect(await uow.run((repos) => repos.metering.findPlan(lawyer))).toEqual({ plan: "pro", pageQuota: 5_000 });
-      expect(await uow.run((repos) => repos.metering.billingCustomer(lawyer))).toBe("cus_1");
-    });
-
-    it("keeps a plan changed later than the change it is given, and applies one at the same moment", async () => {
-      const { uow, newLawyer } = await setup();
-      const lawyer = await newLawyer();
-      const at = new Date("2026-10-16T12:00:00Z");
-      await uow.run(async ({ metering }) => {
-        await metering.insertPlanIfMissing(lawyer, { plan: "trial", pageQuota: 500 });
-        await metering.changePlan(lawyer, { plan: "trial", pageQuota: 500 }, { billingCustomer: "cus_1", at });
-      });
-
-      await uow.run((repos) => repos.metering.changePlan(lawyer, { plan: "pro", pageQuota: 5_000 }, { billingCustomer: "cus_1", at: new Date("2026-10-15T12:00:00Z") }));
-      expect(await uow.run((repos) => repos.metering.findPlan(lawyer))).toEqual({ plan: "trial", pageQuota: 500 });
-
-      await uow.run((repos) => repos.metering.changePlan(lawyer, { plan: "pro", pageQuota: 5_000 }, { billingCustomer: "cus_1", at }));
       expect(await uow.run((repos) => repos.metering.findPlan(lawyer))).toEqual({ plan: "pro", pageQuota: 5_000 });
     });
 
@@ -81,10 +64,25 @@ export function meteringRepositoryContract(setup: MeteringRepositorySetup) {
       const { uow, newLawyer } = await setup();
       const lawyer = await newLawyer();
 
-      await uow.run((repos) => repos.metering.changePlan(lawyer, { plan: "pro", pageQuota: 5_000 }, { billingCustomer: "cus_1", at: new Date() }));
+      await uow.run((repos) => repos.metering.changePlan(lawyer, { plan: "pro", pageQuota: 5_000 }));
 
       expect(await uow.run((repos) => repos.metering.findPlan(lawyer))).toBeNull();
-      expect(await uow.run((repos) => repos.metering.billingCustomer(lawyer))).toBeNull();
+    });
+
+    it("stores a lawyer's billing customer and finds the lawyer by it", async () => {
+      const { uow, newLawyer } = await setup();
+      const [ana, bruno] = [await newLawyer(), await newLawyer()];
+      await uow.run(async ({ metering }) => {
+        await metering.insertPlanIfMissing(ana, { plan: "trial", pageQuota: 500 });
+        await metering.insertPlanIfMissing(bruno, { plan: "trial", pageQuota: 500 });
+      });
+
+      await uow.run((repos) => repos.metering.setBillingCustomer(ana, "cus_ana"));
+
+      expect(await uow.run((repos) => repos.metering.billingCustomer(ana))).toBe("cus_ana");
+      expect(await uow.run((repos) => repos.metering.billingCustomer(bruno))).toBeNull();
+      expect(await uow.run((repos) => repos.metering.lawyerOfBillingCustomer("cus_ana"))).toBe(ana);
+      expect(await uow.run((repos) => repos.metering.lawyerOfBillingCustomer("cus_unknown"))).toBeNull();
     });
 
     it("sums no pages for a lawyer without charges", async () => {

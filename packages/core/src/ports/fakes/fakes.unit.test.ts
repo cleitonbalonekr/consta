@@ -27,6 +27,12 @@ describe("FakeBilling", () => {
     const billing = new FakeBilling();
     return { billing, sign: async (change) => billing.sign(change) };
   });
+
+  it("refuses a webhook signed by another FakeBilling, so a deployment running the fake can't be sent a forged one", async () => {
+    const [payload, signature] = new FakeBilling().sign({ billingCustomer: "cus_fake_1" });
+
+    await expect(new FakeBilling().readWebhook(payload, signature)).rejects.toThrow("doesn't match");
+  });
 });
 
 describe("FakeReranker", () => {

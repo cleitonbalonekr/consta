@@ -70,7 +70,7 @@ export async function upgradeToPro(): Promise<void> {
   redirect(await container().plans.checkoutUrl(id, email, await appUrl(PLAN_PATH)));
 }
 
-/** Sends a lawyer who has paid to the Stripe billing portal, to change their card or cancel. */
+/** Sends a lawyer who has opened Checkout to the Stripe billing portal, to change their card or cancel. */
 export async function manageBilling(): Promise<void> {
   redirect(await container().plans.portalUrl(await currentLawyer(), await appUrl(PLAN_PATH)));
 }

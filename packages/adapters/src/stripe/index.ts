@@ -1,5 +1,5 @@
-import { InvalidWebhook, LawyerId } from "@consta/core";
-import type { Billing, PlanChange } from "@consta/core/ports";
+import { InvalidWebhook } from "@consta/core";
+import type { Billing, BillingChange } from "@consta/core/ports";
 import Stripe from "stripe";
 
 export type StripeBillingOptions = {
@@ -8,38 +8,46 @@ export type StripeBillingOptions = {
   webhookSecret: string;
   /** The Price of Pro's monthly subscription. */
   proPriceId: string;
+  /** Answers Stripe's API in place of the network; tests pass one. */
+  fetch?: typeof fetch;
 };
 
 /** Events that report a subscription's state. Stripe sends them in no guaranteed order. */
 const SUBSCRIPTION_EVENTS = new Set(["customer.subscription.created", "customer.subscription.updated", "customer.subscription.deleted"]);
 
 /**
- * A subscription waiting for its first payment (3D Secure) changes no plan yet: Stripe moves it
- * to active or incomplete_expired, often in the same second, and seconds are all `created` has.
+ * A past-due subscription keeps Pro while Stripe retries the card; Stripe moves it to unpaid or
+ * canceled when retries end. An incomplete one is still waiting for its first payment (3D Secure).
  */
-const PENDING_STATUSES = new Set<Stripe.Subscription.Status>(["incomplete"]);
-
-/** A past-due subscription keeps Pro while Stripe retries the card; Stripe moves it to unpaid or canceled when retries end. */
 const PAYING_STATUSES = new Set<Stripe.Subscription.Status>(["active", "trialing", "past_due"]);
 
 /**
- * Pro through Stripe Checkout and the Customer Portal. Checkout writes the lawyer's id
- * into the subscription's metadata, so every subscription event names its lawyer by
- * itself, whatever order the events arrive in.
+ * Pro through Stripe Checkout and the Customer Portal. Each lawyer has one Stripe customer,
+ * created before their first Checkout, and a webhook only names the customer: whether they
+ * pay is read from their subscriptions now, whatever order the events arrive in.
  */
 export class StripeBilling implements Billing {
   private readonly stripe: Stripe;
 
   constructor(private readonly options: StripeBillingOptions) {
-    this.stripe = new Stripe(options.secretKey);
+    this.stripe = new Stripe(options.secretKey, options.fetch ? { httpClient: Stripe.createFetchHttpClient(options.fetch) } : {});
   }
 
-  async checkoutUrl({ lawyer, email, billingCustomer, returnUrl }: Parameters<Billing["checkoutUrl"]>[0]) {
+  async createCustomer({ lawyer, email }: Parameters<Billing["createCustomer"]>[0]) {
+    // The key makes a retry within a day return the same customer instead of a second one.
+    const customer = await this.stripe.customers.create({ email, metadata: { lawyerId: lawyer } }, { idempotencyKey: `customer-${lawyer}` });
+    return customer.id;
+  }
+
+  async checkoutUrl({ lawyer, billingCustomer, returnUrl }: Parameters<Billing["checkoutUrl"]>[0]) {
+    for await (const open of this.stripe.checkout.sessions.list({ customer: billingCustomer, status: "open" })) {
+      await this.stripe.checkout.sessions.expire(open.id);
+    }
     const session = await this.stripe.checkout.sessions.create({
       mode: "subscription",
       line_items: [{ price: this.options.proPriceId, quantity: 1 }],
       client_reference_id: lawyer,
-      ...(billingCustomer ? { customer: billingCustomer } : { customer_email: email }),
+      customer: billingCustomer,
       subscription_data: { metadata: { lawyerId: lawyer } },
       success_url: returnUrl,
       cancel_url: returnUrl,
@@ -54,20 +62,21 @@ export class StripeBilling implements Billing {
     return session.url;
   }
 
-  async readWebhook(payload: string, signature: string): Promise<PlanChange | null> {
+  /** Any of the customer's subscriptions to Pro's price counts, so a second one keeps Pro when the first ends. */
+  async isPaying(billingCustomer: string) {
+    for await (const subscription of this.stripe.subscriptions.list({ customer: billingCustomer, status: "all" })) {
+      const isPro = subscription.items.data.some((item) => item.price.id === this.options.proPriceId);
+      if (isPro && PAYING_STATUSES.has(subscription.status)) return true;
+    }
+    return false;
+  }
+
+  async readWebhook(payload: string, signature: string): Promise<BillingChange | null> {
     const event = this.verified(payload, signature);
     if (!SUBSCRIPTION_EVENTS.has(event.type)) return null;
     // The event types above all carry a subscription.
-    const subscription = event.data.object as Stripe.Subscription;
-    const lawyer = subscription.metadata?.lawyerId;
-    if (!lawyer) return null; // A subscription Consta's Checkout didn't create.
-    if (PENDING_STATUSES.has(subscription.status)) return null;
-    return {
-      lawyer: LawyerId(lawyer),
-      billingCustomer: typeof subscription.customer === "string" ? subscription.customer : subscription.customer.id,
-      paying: event.type !== "customer.subscription.deleted" && PAYING_STATUSES.has(subscription.status),
-      at: new Date(event.created * 1000),
-    };
+    const { customer } = event.data.object as Stripe.Subscription;
+    return { billingCustomer: typeof customer === "string" ? customer : customer.id };
   }
 
   private verified(payload: string, signature: string): Stripe.Event {

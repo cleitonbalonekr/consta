@@ -19,9 +19,8 @@
 
 - A new `Billing` port has a Stripe adapter (`packages/adapters/src/stripe`) and `FakeBilling`. `Plans`, a part of Metering's interface like `CaseFileLifecycle` is of Case files, sends a lawyer on Trial to Checkout and a lawyer who has paid to the Customer Portal, and applies the webhook at `/api/billing/webhook`.
 - The webhook verifies Stripe's signature (a 400 if it doesn't match) and reads only `customer.subscription.created|updated|deleted`. `active`, `trialing` and `past_due` mean Pro (5,000 pages); anything else, or a deleted subscription, means Trial (500). The page quota is stored with the plan, so quota checks use the current plan without other changes.
-- Checkout writes the lawyer's id into the subscription's metadata, so every event names its lawyer. No event depends on `checkout.session.completed` arriving first.
-- Idempotent and safe out of order: migration 0007 adds `lawyer_plan.plan_changed_at` and `billing_customer`. A change older than the last one applied does nothing, so a repeated or late event leaves the newest state.
-- Integration tests run 7 payloads in Stripe's event shape (`src/stripe/recorded/`) through `Plans` on PGlite. I wrote them by hand from Stripe's documented format; nothing was recorded from a live account. Replacing them with real `stripe listen` captures is a good follow-up.
+- Each lawyer gets one Stripe customer, created when they first open Checkout and stored in `lawyer_plan.billing_customer` (migration 0007). A webhook only names the customer; `Plans` locks the lawyer's plan and asks Stripe whether the customer pays for Pro now (any `active`, `trialing` or `past_due` subscription to Pro's price). Repeated, late and same-second events, and a lawyer's second subscription, all end on Stripe's current state.
+- Integration tests run 8 payloads in Stripe's event shape (`src/stripe/recorded/`) through `Plans` on PGlite, with `OfflineStripe` answering Stripe's API from the subscriptions those events leave. I wrote them by hand from Stripe's documented format; nothing was recorded from a live account. Replacing them with real `stripe listen` captures is a good follow-up.
 - E2E: the quota-exceeded screen and `/plano` both reach Checkout. The fake returns a `https://checkout.stripe.com/...` URL, and Playwright answers that request in the browser.
 - Settings: `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRO_PRICE_ID`. Setting the secret key uses Stripe even in fake mode. The README has the local `stripe listen` steps.
 
@@ -29,10 +28,10 @@ Left for the human: create the Pro product and its monthly price in Stripe, turn
 
 Code review changes and known risks:
 
-- An `incomplete` subscription (waiting for 3D Secure) changes no plan. Without this, it could arrive in the same second as `active` and leave a paying lawyer on Trial.
-- A webhook never changes an Enterprise plan.
-- Not handled yet:
-  - A lawyer who opens Checkout twice before the first webhook arrives can end up with two Stripe subscriptions. Cancelling one then moves them to Trial while the other still bills.
-  - A `billing_customer` that already belongs to another lawyer makes the webhook answer 500, so Stripe retries.
-  - A lawyer back on Trial after Pro gets 500 pages every month. The monthly Trial quota predates this ticket; the PRD's Trial is one case file.
-
+- An `incomplete` subscription (waiting for 3D Secure) is not paying, so the lawyer stays on Trial until the payment goes through.
+- A webhook never changes an Enterprise plan, and Checkout refuses (`NotOnTrial`) a lawyer on a plan set outside it.
+- Second review: no one pays twice. Checkout sends a lawyer whom Stripe already shows paying to the portal, even before the webhook arrives, and expires the customer's other open Checkout sessions. A webhook for a customer Consta didn't create changes nothing, so `billing_customer` can't conflict.
+- `Plans.view` starts the Trial of a lawyer whose sign-up hook didn't, so the case-file list never fails for a missing plan.
+- `FakeBilling` signs webhooks with a per-process secret, so a deployment in fake mode can't be sent a forged one.
+- A database that ran the first version of migration 0007 has an unused `plan_changed_at` column; reset it or drop the column by hand.
+- Not handled yet: a lawyer back on Trial after Pro gets 500 pages every month. The monthly Trial quota predates this ticket; the PRD's Trial is one case file.

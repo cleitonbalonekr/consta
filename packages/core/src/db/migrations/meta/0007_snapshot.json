@@ -1,5 +1,5 @@
 {
-  "id": "e4e5dc93-0e47-41cf-936d-70d1dee44ff5",
+  "id": "8f514737-55a2-41e3-bbe3-6cc7ab3fbebc",
   "prevId": "c3fbd796-caa0-4a21-a88d-3a64b1243afe",
   "version": "7",
   "dialect": "postgresql",
@@ -508,12 +508,6 @@
         "billing_customer": {
           "name": "billing_customer",
           "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "plan_changed_at": {
-          "name": "plan_changed_at",
-          "type": "timestamp with time zone",
           "primaryKey": false,
           "notNull": false
         },

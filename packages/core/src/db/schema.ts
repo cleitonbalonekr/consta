@@ -122,10 +122,8 @@ export const lawyerPlan = pgTable("lawyer_plan", {
     .references(() => user.id, { onDelete: "cascade" }),
   plan: plan("plan").notNull().default("trial"),
   pageQuota: integer("page_quota").notNull(),
-  /** The payment provider's customer, once the lawyer has paid. */
+  /** The payment provider's customer, created when the lawyer first opens Checkout. */
   billingCustomer: text("billing_customer").unique(),
-  /** When the payment provider last changed the plan; an older change is stale. */
-  planChangedAt: timestamp("plan_changed_at", { withTimezone: true }),
   createdAt: createdAt(),
 });
 
