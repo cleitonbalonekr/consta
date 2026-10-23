@@ -6,6 +6,7 @@ import { fixturePdf, ingestionOn } from "../ingestion/testing";
 import type { FixturePage } from "../ingestion/testing";
 import { FakeCitingModel, FakeEmbedder, FakeReranker } from "../ports/fakes";
 import type { CitingModel, Reranker, Source, UnitOfWork } from "../ports";
+import type { PecaView } from "../case-files";
 import type { CaseFileId, LawyerId } from "../shared";
 import { Answering } from "./index";
 import type { AnswerEvent, QuestionInput } from "./index";
@@ -36,11 +37,20 @@ export function answeringOn(uow: UnitOfWork, options: { model?: CitingModel; rer
 
   /** Every event of a whole-file question, in order. */
   async function ask(lawyer: LawyerId, caseFileId: CaseFileId, text = "Do que trata esta ação?"): Promise<AnswerEvent[]> {
-    const question: QuestionInput = { caseFileId, scope: { kind: "whole-file" }, text };
-    const events: AnswerEvent[] = [];
-    for await (const event of answering.ask(lawyer, question)) events.push(event);
-    return events;
+    return events(lawyer, { caseFileId, scope: { kind: "whole-file" }, text });
   }
 
-  return { ...built, answering, ingest, ask };
+  /** Every event of any question, in order. */
+  async function events(lawyer: LawyerId, question: QuestionInput): Promise<AnswerEvent[]> {
+    const all: AnswerEvent[] = [];
+    for await (const event of answering.ask(lawyer, question)) all.push(event);
+    return all;
+  }
+
+  /** The case file's peças, in page order. */
+  async function documentMap(lawyer: LawyerId, caseFileId: CaseFileId): Promise<PecaView[]> {
+    return (await built.caseFiles.view(lawyer, caseFileId)).documentMap;
+  }
+
+  return { ...built, answering, ingest, ask, events, documentMap };
 }

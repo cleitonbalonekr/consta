@@ -13,12 +13,12 @@ const defaultScript: Script = ({ sources }) => [
  * uncited line, so fake mode shows the citation rule at work. Usage counts words as tokens.
  */
 export class FakeCitingModel implements CitingModel {
-  readonly calls: Array<{ sources: Source[]; question: string; cacheSources: boolean }> = [];
+  readonly calls: Array<{ instructions: string; sources: Source[]; question: string; cacheSources: boolean }> = [];
 
   constructor(private readonly script: Script = defaultScript) {}
 
   async *answer(input: { instructions: string; sources: Source[]; question: string; cacheSources: boolean }): AsyncIterable<CitingModelEvent> {
-    this.calls.push({ sources: input.sources, question: input.question, cacheSources: input.cacheSources });
+    this.calls.push({ instructions: input.instructions, sources: input.sources, question: input.question, cacheSources: input.cacheSources });
     const pieces = this.script(input);
     for (const piece of pieces) {
       yield { type: "text", ...piece };

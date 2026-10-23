@@ -32,25 +32,47 @@ test.describe("asking about the whole case file", () => {
   });
 });
 
-test.describe("asking about one peça, and quick actions", () => {
-  // Needs a document map: ticket 09, then tickets 10 and 11.
+test.describe("asking about one peça", () => {
+  test.beforeEach(async ({ caseFileList, caseFile }) => {
+    await caseFileList.goto();
+    await caseFileList.uploadAndOpen(uniqueName("Autos para perguntas"), await pdfWithText(3));
+    await caseFile.expectReady();
+  });
+
+  test("a question about one peça cites only its pages", async ({ caseFile, answer }) => {
+    // The fake extractor maps pages 1–2 as the petição inicial and page 3 as the contestação.
+    await caseFile.choosePeca(1);
+
+    await caseFile.ask("O que o réu contesta?");
+
+    await answer.waitUntilDone();
+    // The fake model cites the first two sources; the contestação has one page, so one statement.
+    await expect(answer.statements).toHaveCount(1);
+    expect(await answer.citationLabels()).toEqual(["p. 3 · fls. 3"]);
+  });
+
+  test("the summary of a peça is cited paragraphs from its pages", async ({ caseFile, answer }) => {
+    await caseFile.choosePeca(0);
+
+    await caseFile.summarizePeca();
+
+    await answer.waitUntilDone();
+    await expect(answer.statements).toHaveCount(2);
+    for (const statement of await answer.statements.all()) {
+      await expect(statement.locator('[id^="citation-"]').first()).toBeVisible();
+    }
+    expect(await answer.citationLabels()).toEqual(["p. 1 · fls. 1", "p. 2 · fls. 2"]);
+  });
+});
+
+test.describe("quick actions", () => {
+  // Needs ticket 11.
   test.fixme();
 
   test.beforeEach(async ({ caseFileList, caseFile }) => {
     await caseFileList.goto();
-    await caseFileList.uploadAndOpen(uniqueName("Autos para perguntas"));
-    await expect(caseFile.documentMap).toBeVisible({ timeout: 60_000 });
-  });
-
-  test("asking about one peça cites only its pages", async ({ caseFile, answer }) => {
-    await caseFile.choosePeca("sample-sentenca");
-
-    await caseFile.ask("Qual foi a condenação?");
-
-    await answer.waitUntilDone();
-    const labels = await answer.citationLabels();
-    expect(labels.length).toBeGreaterThan(0);
-    for (const label of labels) expect(label).toMatch(/^p\. (9|10) /);
+    await caseFileList.uploadAndOpen(uniqueName("Autos para perguntas"), await pdfWithText(3));
+    await caseFile.expectReady();
   });
 
   for (const action of ["timeline", "people", "amounts"] as const) {

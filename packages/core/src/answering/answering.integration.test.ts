@@ -5,6 +5,7 @@ import { createTestDb, insertLawyer } from "../db/testing";
 import { FakeCitingModel } from "../ports/fakes";
 import { NotFound } from "../shared";
 import type { CaseFileId } from "../shared";
+import { PECA_CHAR_BUDGET, SUMMARY_PRESET } from "./index";
 import type { AnswerEvent, Statement } from "./index";
 import { answeringOn, sourceOn } from "./testing";
 
@@ -109,5 +110,65 @@ describe("Answering on Postgres", () => {
     const insert = db.insert(schema.question).values({ caseFileId, lawyerId: lawyer, scope: "peca", text: "?", answer: [] });
 
     await expect(insert).rejects.toThrow();
+  });
+});
+
+describe("Answering about one peça on Postgres", () => {
+  /** A ready case file of three digital pages; the fake map makes peças of pages 1–2 and page 3. */
+  async function withPecas() {
+    const model = new FakeCitingModel();
+    const built = await setup({ model });
+    const caseFileId = await built.ingest(built.lawyer, ["digital", "digital", "digital"]);
+    const [first, second] = await built.documentMap(built.lawyer, caseFileId);
+    return { ...built, model, caseFileId, pecas: [first!, second!] as const };
+  }
+
+  it("reads only the peça's pages, one source per page, asks to cache them, and saves the peça scope", async () => {
+    const { events, lawyer, caseFileId, pecas, model, db } = await withPecas();
+
+    const answer = await events(lawyer, { caseFileId, scope: { kind: "peca", pecaId: pecas[0].id }, text: "Quem é a autora?" });
+
+    expect(model.calls[0]!.sources.map((source) => source.title)).toEqual(["Página 1 (fls. 2)", "Página 2 (fls. 3)"]);
+    expect(model.calls[0]!.cacheSources).toBe(true);
+    expect(statements(answer).flatMap((statement) => statement.citations.map((citation) => [citation.page, citation.folha]))).toEqual([
+      [1, "2"],
+      [2, "3"],
+    ]);
+    const rows = await db.select().from(schema.question).where(eq(schema.question.caseFileId, caseFileId));
+    expect(rows).toEqual([expect.objectContaining({ scope: "peca", pecaId: pecas[0].id, text: "Quem é a autora?", answer: statements(answer), droppedStatements: 1 })]);
+  });
+
+  it("summarizes a peça from its pages, and saves the summary as a peça question", async () => {
+    const { events, lawyer, caseFileId, pecas, model, db } = await withPecas();
+
+    const answer = await events(lawyer, { caseFileId, summarize: pecas[1].id });
+
+    expect(model.calls[0]!.question).toBe(SUMMARY_PRESET);
+    expect(model.calls[0]!.sources.map((source) => source.title)).toEqual(["Página 3 (fls. 4)"]);
+    expect(statements(answer).map((statement) => statement.citations[0].page)).toEqual([3]);
+    const rows = await db.select().from(schema.question).where(eq(schema.question.caseFileId, caseFileId));
+    expect(rows).toEqual([expect.objectContaining({ scope: "peca", pecaId: pecas[1].id, text: SUMMARY_PRESET })]);
+  });
+
+  it("refuses a peça over the budget as too large, calls no model and saves nothing", async () => {
+    const { events, lawyer, caseFileId, pecas, model, db } = await withPecas();
+    await db
+      .update(schema.page)
+      .set({ text: "a".repeat(PECA_CHAR_BUDGET) })
+      .where(and(eq(schema.page.caseFileId, caseFileId), eq(schema.page.number, 1)));
+
+    const answer = await events(lawyer, { caseFileId, scope: { kind: "peca", pecaId: pecas[0].id }, text: "O que houve?" });
+
+    expect(answer).toEqual([{ type: "refused", reason: "scope-too-large" }]);
+    expect(model.calls).toEqual([]);
+    expect(await db.select().from(schema.question)).toEqual([]);
+  });
+
+  it("throws NotFound for another case file's peça", async () => {
+    const { events, ingest, documentMap, lawyer, caseFileId } = await withPecas();
+    const other = await ingest(lawyer, ["digital"]);
+    const [othersPeca] = await documentMap(lawyer, other);
+
+    await expect(events(lawyer, { caseFileId, scope: { kind: "peca", pecaId: othersPeca!.id }, text: "?" })).rejects.toThrow(NotFound);
   });
 });

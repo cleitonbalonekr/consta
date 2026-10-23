@@ -21,6 +21,10 @@ describe("parseQuestionRequest", () => {
     });
   });
 
+  it("reads the summary of one peça", () => {
+    expect(parseQuestionRequest(caseFileId, { summarize: "p-1" })).toEqual({ caseFileId, summarize: PecaId("p-1") });
+  });
+
   it("reads a quick action", () => {
     expect(parseQuestionRequest(caseFileId, { quickAction: "amounts" })).toEqual({ caseFileId, quickAction: "amounts" });
   });
@@ -31,6 +35,7 @@ describe("parseQuestionRequest", () => {
     ["an unknown scope", { scope: { kind: "everything" }, text: "?" }],
     ["a peça scope without a peça", { scope: { kind: "peca" }, text: "?" }],
     ["an unknown quick action", { quickAction: "witnesses" }],
+    ["a summary without a peça", { summarize: "" }],
     ["a question too long to be one", { scope: { kind: "whole-file" }, text: "a".repeat(2_001) }],
   ])("rejects %s", (_, body) => {
     expect(parseQuestionRequest(caseFileId, body)).toBeNull();

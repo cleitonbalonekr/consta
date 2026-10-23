@@ -1,7 +1,7 @@
 "use client";
 
 import type { Citation, Folhas, PecaView, QuickAction } from "@consta/core";
-import { ArrowUp, Banknote, CalendarClock, LoaderCircle, ShieldCheck, Sparkles, TriangleAlert, Users } from "lucide-react";
+import { ArrowUp, Banknote, CalendarClock, FileText, LoaderCircle, ShieldCheck, Sparkles, TriangleAlert, Users } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { answerStates, failAnswer, startAnswer } from "@/lib/answer-session";
 import type { AnswerState } from "@/lib/answer-session";
@@ -31,11 +31,12 @@ export function CaseFileWorkspace({ caseFileId, documentMap, folhas, pdfUrl }: C
   const { answer, ask } = useAnswer(caseFileId);
   const selectedPeca = scopedToPeca ? peca : null;
 
+  const scopeLabel = selectedPeca ? `${selectedPeca.title} · ${pageRange(selectedPeca)}` : "Autos inteiros";
+
   function askQuestion(text: string) {
     const trimmed = text.trim();
     if (!trimmed || answer?.state === "streaming") return;
     const scope = selectedPeca ? ({ kind: "peca", pecaId: selectedPeca.id } as const) : ({ kind: "whole-file" } as const);
-    const scopeLabel = selectedPeca ? `${selectedPeca.title} · ${pageRange(selectedPeca)}` : "Autos inteiros";
     setQuestion("");
     void ask(trimmed, scopeLabel, { scope, text: trimmed });
   }
@@ -100,6 +101,18 @@ export function CaseFileWorkspace({ caseFileId, documentMap, folhas, pdfUrl }: C
             />
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="flex flex-wrap items-center gap-1.5">
+                {selectedPeca && (
+                  <button
+                    id="summarize-peca"
+                    type="button"
+                    disabled={answer?.state === "streaming"}
+                    onClick={() => void ask("Resumo da peça", scopeLabel, { summarize: selectedPeca.id })}
+                    className="inline-flex items-center gap-1.5 rounded-full border border-accent/40 bg-accent-soft px-3 py-1.5 text-xs font-medium text-accent-text transition-colors hover:border-accent hover:bg-accent hover:text-accent-foreground disabled:opacity-50"
+                  >
+                    <FileText className="size-3.5" aria-hidden />
+                    Resumir esta peça
+                  </button>
+                )}
                 {QUICK_ACTIONS.map(({ action, label, icon: Icon }) => (
                   <button
                     key={action}

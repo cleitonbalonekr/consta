@@ -1,10 +1,10 @@
-import { and, asc, desc, eq, sql } from "drizzle-orm";
-import type { AnsweringRepository, QuestionRecord, RankedPassages } from "../../answering";
-import type { CaseFileId, LawyerId } from "../../shared";
+import { and, asc, between, desc, eq, sql } from "drizzle-orm";
+import type { AnsweringRepository, PecaPage, QuestionRecord, RankedPassages } from "../../answering";
+import type { CaseFileId, LawyerId, PecaId } from "../../shared";
 import type { Db } from "../index";
 import * as schema from "../schema";
 
-const { caseFile, page, passage, question } = schema;
+const { caseFile, page, passage, peca, question } = schema;
 
 type Ranking = "vector" | "text";
 
@@ -77,7 +77,22 @@ export class DrizzleAnsweringRepository implements AnsweringRepository {
     return { byVector: found("vector"), byText: found("text") };
   }
 
+  async pecaPages(caseFileId: CaseFileId, pecaId: PecaId): Promise<PecaPage[] | null> {
+    const [range] = await this.db
+      .select({ firstPage: peca.firstPage, lastPage: peca.lastPage })
+      .from(peca)
+      .where(and(eq(peca.id, pecaId), eq(peca.caseFileId, caseFileId)));
+    if (!range) return null;
+    const rows = await this.db
+      .select({ number: page.number, folha: page.folha, source: page.source, text: page.text, blocks: page.blocks })
+      .from(page)
+      .where(and(eq(page.caseFileId, caseFileId), between(page.number, range.firstPage, range.lastPage)))
+      .orderBy(asc(page.number));
+    return rows.map(({ number, blocks, ...row }) => ({ ...row, page: number, boxes: blocks.map((block) => block.box) }));
+  }
+
   async saveQuestion({ id, caseFileId, lawyer, scope, text, answer, dropped }: QuestionRecord) {
-    await this.db.insert(question).values({ id, caseFileId, lawyerId: lawyer, scope, text, answer, droppedStatements: dropped });
+    const pecaId = scope.kind === "peca" ? scope.pecaId : null;
+    await this.db.insert(question).values({ id, caseFileId, lawyerId: lawyer, scope: scope.kind, pecaId, text, answer, droppedStatements: dropped });
   }
 }

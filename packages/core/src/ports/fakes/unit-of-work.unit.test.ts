@@ -43,6 +43,6 @@ answeringRepositoryContract(async () => {
     questions: async (caseFileId) =>
       uow.state.answering.questions
         .filter((question) => question.caseFileId === caseFileId)
-        .map(({ text, scope, answer, dropped }) => ({ text, scope, answer, dropped })),
+        .map(({ text, scope, answer, dropped }) => ({ text, scope: scope.kind, pecaId: scope.kind === "peca" ? scope.pecaId : null, answer, dropped })),
   };
 });

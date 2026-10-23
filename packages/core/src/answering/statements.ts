@@ -1,7 +1,7 @@
 import type { Box } from "../shared";
 import type { Citation, Statement } from "./index";
 
-/** A passage that search found, with what a citation of it shows. */
+/** A passage the model reads, with what a citation of it shows: one that search found, or one full page of a peça. */
 export type FoundPassage = { id: string; page: number; folha: string | null; text: string; boxes: Box[] };
 
 /** A list marker at the start of a line: "- ", "* ", "• ", "1. " or "1) ". */

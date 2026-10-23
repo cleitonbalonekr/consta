@@ -2,7 +2,8 @@ import { describe, expect, it } from "vitest";
 import type { RankedPassages, Statement } from "../../answering";
 import { CaseFile, FileSize, PageCount } from "../../case-files";
 import type { PageRecord, PassageRecord } from "../../ingestion";
-import { CaseFileId, QuestionId } from "../../shared";
+import type { PecaDraft } from "../map-extractor";
+import { CaseFileId, PecaId, QuestionId } from "../../shared";
 import type { LawyerId } from "../../shared";
 import type { UnitOfWork } from "../unit-of-work";
 
@@ -10,7 +11,7 @@ export type AnsweringRepositorySetup = () => Promise<{
   uow: UnitOfWork;
   newLawyer: () => Promise<LawyerId>;
   /** The stored questions of the case file. No repository method reads them yet. */
-  questions: (caseFileId: CaseFileId) => Promise<Array<{ text: string; scope: string; answer: Statement[]; dropped: number }>>;
+  questions: (caseFileId: CaseFileId) => Promise<Array<{ text: string; scope: string; pecaId: string | null; answer: Statement[]; dropped: number }>>;
 }>;
 
 /** The dimensions of the passage column in the schema. */
@@ -32,6 +33,10 @@ function pageWith(number: number, text: string): PageRecord {
 
 function passageOn(page: number, text: string, embedding: number[]): PassageRecord {
   return { page, text: `${text}\nAssinatura`, embedding, embeddingModel: "fake-embedder", blockIndexes: [1, 2] };
+}
+
+function pecaOn(firstPage: number, lastPage: number): PecaDraft {
+  return { type: "sentenca", title: "Sentença", date: null, firstPage, lastPage, summary: "Julgou procedente o pedido." };
 }
 
 const SENTENCA = "A sentença julgou procedente o pedido de indenização.";
@@ -121,10 +126,46 @@ export function answeringRepositoryContract(setup: AnsweringRepositorySetup) {
       const answer: Statement[] = [{ text: "O pedido foi julgado procedente.", citations: [{ page: 1, folha: "2", quote: SENTENCA, boxes: [box(2)] }] }];
 
       await uow.run((repos) =>
-        repos.answering.saveQuestion({ id: QuestionId(crypto.randomUUID()), caseFileId, lawyer, scope: "whole-file", text: "O que decidiu?", answer, dropped: 1 }),
+        repos.answering.saveQuestion({ id: QuestionId(crypto.randomUUID()), caseFileId, lawyer, scope: { kind: "whole-file" }, text: "O que decidiu?", answer, dropped: 1 }),
       );
 
-      expect(await questions(caseFileId)).toEqual([{ text: "O que decidiu?", scope: "whole-file", answer, dropped: 1 }]);
+      expect(await questions(caseFileId)).toEqual([{ text: "O que decidiu?", scope: "whole-file", pecaId: null, answer, dropped: 1 }]);
+    });
+
+    it("saves a question about one peça with its peça", async () => {
+      const { uow, caseFileId, lawyer, questions } = await withPassages();
+      await uow.run((repos) => repos.ingestion.replaceDocumentMap(caseFileId, [pecaOn(1, 2)], []));
+      const [peca] = await uow.run((repos) => repos.caseFiles.documentMapOf(caseFileId));
+
+      await uow.run((repos) =>
+        repos.answering.saveQuestion({ id: QuestionId(crypto.randomUUID()), caseFileId, lawyer, scope: { kind: "peca", pecaId: peca!.id }, text: "Resuma.", answer: [], dropped: 0 }),
+      );
+
+      expect(await questions(caseFileId)).toEqual([{ text: "Resuma.", scope: "peca", pecaId: peca!.id, answer: [], dropped: 0 }]);
+    });
+
+    it("reads the pages of a peça in order, each with its folha, source, text and the boxes of all its blocks", async () => {
+      const { uow, caseFileId } = await withPassages();
+      await uow.run((repos) => repos.ingestion.replaceDocumentMap(caseFileId, [pecaOn(1, 1), pecaOn(2, 3)], []));
+      const [, peca] = await uow.run((repos) => repos.caseFiles.documentMapOf(caseFileId));
+
+      const pages = await uow.run((repos) => repos.answering.pecaPages(caseFileId, peca!.id));
+
+      expect(pages).toEqual([
+        { page: 2, folha: "3", source: "digital", text: pageWith(2, LAUDO).text, boxes: [box(1), box(2), box(3)] },
+        { page: 3, folha: "4", source: "digital", text: pageWith(3, PROCURACAO).text, boxes: [box(1), box(2), box(3)] },
+      ]);
+    });
+
+    it("reads no pages, but null, for a missing peça or another case file's peça", async () => {
+      const mine = await withPassages();
+      const other = await withCaseFile(mine);
+      await other.uow.run((repos) => repos.ingestion.savePages(other.caseFileId, [pageWith(1, LAUDO)], [passageOn(1, LAUDO, vector(0, 1))]));
+      await other.uow.run((repos) => repos.ingestion.replaceDocumentMap(other.caseFileId, [pecaOn(1, 1)], []));
+      const [othersPeca] = await other.uow.run((repos) => repos.caseFiles.documentMapOf(other.caseFileId));
+
+      expect(await mine.uow.run((repos) => repos.answering.pecaPages(mine.caseFileId, othersPeca!.id))).toBeNull();
+      expect(await mine.uow.run((repos) => repos.answering.pecaPages(mine.caseFileId, PecaId(crypto.randomUUID())))).toBeNull();
     });
   });
 }

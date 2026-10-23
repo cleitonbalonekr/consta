@@ -143,12 +143,13 @@ export class CaseFileLifecycle {
 // packages/core/src/answering/index.ts
 export class Answering {
   constructor(deps: { uow: UnitOfWork; embedder: Embedder; reranker: Reranker; model: CitingModel; metering: Metering });
-  /** Yields `refused: "not-ready"` unless the case file is ready, then each cited statement, then `done`; `refused: "declined"` ends it when the model declines. Throws NotFound. */
+  /** Yields `refused: "not-ready"` unless the case file is ready, and `refused: "scope-too-large"` for a peça over the budget; then each cited statement, then `done`; `refused: "declined"` ends it when the model declines. Throws NotFound for a case file or peça the lawyer can't ask about. */
   ask(lawyer: LawyerId, question: QuestionInput): AsyncIterable<AnswerEvent>;
 }
 
 export type QuestionInput =
   | { caseFileId: CaseFileId; scope: Scope; text: string }
+  | { caseFileId: CaseFileId; summarize: PecaId } // a peça question whose text is SUMMARY_PRESET
   | { caseFileId: CaseFileId; quickAction: "timeline" | "people" | "amounts" };
 
 export type Scope = { kind: "whole-file" } | { kind: "peca"; pecaId: PecaId };

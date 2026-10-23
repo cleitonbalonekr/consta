@@ -1,5 +1,5 @@
 import { AsyncLocalStorage } from "node:async_hooks";
-import type { AnsweringRepository, FoundPassage, QuestionRecord, RankedPassages } from "../../answering";
+import type { AnsweringRepository, FoundPassage, PecaPage, QuestionRecord, RankedPassages } from "../../answering";
 import { CaseFile } from "../../case-files";
 import type { CaseFileProps, CaseFileRepository, Folhas, PecaView } from "../../case-files";
 import type { IngestionRepository, PageRecord, PassageRecord } from "../../ingestion";
@@ -213,6 +213,16 @@ class InMemoryAnsweringRepository implements AnsweringRepository {
     const matches = (passage: { text: string }) => new Set(this.words(passage.text).filter((word) => questionWords.has(word))).size;
     const byText = passages.filter((passage) => matches(passage) > 0).sort((a, b) => matches(b) - matches(a)).slice(0, depth);
     return { byVector: byVector.map((passage) => this.found(passage)), byText: byText.map((passage) => this.found(passage)) };
+  }
+
+  async pecaPages(caseFileId: CaseFileId, pecaId: PecaId): Promise<PecaPage[] | null> {
+    const { pecas, pages } = this.state().ingestion;
+    const peca = pecas.find((candidate) => candidate.id === pecaId && candidate.caseFileId === caseFileId);
+    if (!peca) return null;
+    return pages
+      .filter((page) => page.caseFileId === caseFileId && page.number >= peca.firstPage && page.number <= peca.lastPage)
+      .sort((a, b) => a.number - b.number)
+      .map(({ number, folha, source, text, blocks }) => ({ page: number, folha, source, text, boxes: blocks.map((block) => block.box) }));
   }
 
   async saveQuestion(question: QuestionRecord) {

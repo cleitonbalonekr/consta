@@ -13,7 +13,7 @@ export type AnswerState = {
 
 const REFUSALS: Record<Extract<AnswerEvent, { type: "refused" }>["reason"], string> = {
   "not-ready": "Estes autos ainda estão sendo lidos. Pergunte de novo quando a leitura terminar.",
-  "scope-too-large": "Esta peça é grande demais para uma pergunta só. Escolha uma peça menor.",
+  "scope-too-large": "Esta peça é grande demais para ler de uma vez. Escolha uma peça menor ou pergunte sobre os autos inteiros.",
   declined: "Não conseguimos responder a esta pergunta. Tente reformulá-la.",
 };
 

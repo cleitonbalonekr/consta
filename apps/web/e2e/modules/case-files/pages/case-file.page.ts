@@ -45,9 +45,14 @@ export class CaseFilePage extends BasePage {
     await expect(this.badge).toHaveAttribute("data-status", "ready", { timeout: 60_000 });
   }
 
-  async choosePeca(pecaId: string) {
-    await this.byId(`peca-row-${pecaId}`).click();
+  /** Chooses the peça at that position in the document map, which scopes the next question to it. */
+  async choosePeca(index: number) {
+    await this.pecas.nth(index).click();
     await expect(this.byId("scope-peca")).toHaveAttribute("aria-pressed", "true");
+  }
+
+  async summarizePeca() {
+    await this.byId("summarize-peca").click();
   }
 
   async ask(question: string) {
