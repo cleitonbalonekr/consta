@@ -1,10 +1,12 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import type { AnsweringRepository, FoundPassage, QuestionRecord, RankedPassages } from "../../answering";
 import { CaseFile } from "../../case-files";
-import type { CaseFileProps, CaseFileRepository } from "../../case-files";
+import type { CaseFileProps, CaseFileRepository, Folhas, PecaView } from "../../case-files";
 import type { IngestionRepository, PageRecord, PassageRecord } from "../../ingestion";
 import type { LawyerPlan, MeteringRepository, QuotaCharge } from "../../metering";
+import { PecaId } from "../../shared";
 import type { CaseFileId, LawyerId, PageRange } from "../../shared";
+import type { FactDraft, PecaDraft } from "../map-extractor";
 import type { Repositories, UnitOfWork } from "../unit-of-work";
 import type { Usage } from "../usage";
 
@@ -15,6 +17,8 @@ export type InMemoryState = {
     ranges: { caseFileId: CaseFileId; first: number; last: number; status: "pending" | "running" | "done"; attempts: number }[];
     pages: (PageRecord & { caseFileId: CaseFileId })[];
     passages: (PassageRecord & { caseFileId: CaseFileId })[];
+    pecas: (PecaDraft & { id: PecaId; caseFileId: CaseFileId })[];
+    facts: (FactDraft & { caseFileId: CaseFileId })[];
   };
   answering: { questions: QuestionRecord[] };
   metering: {
@@ -32,7 +36,7 @@ export type InMemoryState = {
 export class InMemoryUnitOfWork implements UnitOfWork {
   state: InMemoryState = {
     caseFiles: new Map(),
-    ingestion: { ranges: [], pages: [], passages: [] },
+    ingestion: { ranges: [], pages: [], passages: [], pecas: [], facts: [] },
     answering: { questions: [] },
     metering: { plans: new Map(), charges: [], usage: [] },
   };
@@ -74,6 +78,21 @@ class InMemoryCaseFileRepository implements CaseFileRepository {
       .filter((props) => props.lawyer === lawyer)
       .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
       .map((props) => CaseFile.restore(props));
+  }
+
+  async folhasOf(id: CaseFileId) {
+    const folhas: Folhas = {};
+    for (const page of this.state().ingestion.pages) {
+      if (page.caseFileId === id && page.folha !== null) folhas[page.number] = page.folha;
+    }
+    return folhas;
+  }
+
+  async documentMapOf(id: CaseFileId): Promise<PecaView[]> {
+    return this.state()
+      .ingestion.pecas.filter((peca) => peca.caseFileId === id)
+      .sort((a, b) => a.firstPage - b.firstPage)
+      .map(({ caseFileId: _, ...peca }) => peca);
   }
 
   async save(caseFile: CaseFile) {
@@ -138,6 +157,36 @@ class InMemoryIngestionRepository implements IngestionRepository {
       .ingestion.pages.filter((page) => page.caseFileId === caseFileId && page.source === "scanned")
       .map((page) => page.number)
       .sort((a, b) => a - b);
+  }
+
+  async pageLengths(caseFileId: CaseFileId) {
+    return this.pagesOf(caseFileId).map((page) => ({ page: page.number, chars: page.text.length }));
+  }
+
+  async pageTexts(caseFileId: CaseFileId, range: PageRange) {
+    return this.pagesOf(caseFileId)
+      .filter((page) => range.contains(page.number))
+      .map((page) => ({ page: page.number, text: page.text, source: page.source }));
+  }
+
+  /** Like the foreign key on Postgres: a fact's page must be stored. */
+  async replaceDocumentMap(caseFileId: CaseFileId, pecas: PecaDraft[], facts: FactDraft[]) {
+    const { ingestion } = this.state();
+    for (const fact of facts) {
+      if (!ingestion.pages.some((page) => page.caseFileId === caseFileId && page.number === fact.page)) {
+        throw new Error(`Page ${fact.page} of case file ${caseFileId} is not stored.`);
+      }
+    }
+    ingestion.pecas = ingestion.pecas.filter((peca) => peca.caseFileId !== caseFileId);
+    ingestion.facts = ingestion.facts.filter((fact) => fact.caseFileId !== caseFileId);
+    ingestion.pecas.push(...pecas.map((peca) => ({ ...peca, id: PecaId(crypto.randomUUID()), caseFileId })));
+    ingestion.facts.push(...facts.map((fact) => ({ ...fact, caseFileId })));
+  }
+
+  private pagesOf(caseFileId: CaseFileId) {
+    return this.state()
+      .ingestion.pages.filter((page) => page.caseFileId === caseFileId)
+      .sort((a, b) => a.number - b.number);
   }
 
   private range(caseFileId: CaseFileId, first: number) {

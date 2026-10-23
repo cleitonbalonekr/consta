@@ -5,6 +5,7 @@ export { citingModelContract } from "./citing-model.contract";
 export { embedderContract } from "./embedder.contract";
 export { fileStoreContract } from "./file-store.contract";
 export { ingestionRepositoryContract } from "./ingestion-repository.contract";
+export { mapExtractorContract } from "./map-extractor.contract";
 export { meteringRepositoryContract } from "./metering-repository.contract";
 export { rerankerContract } from "./reranker.contract";
 export { unitOfWorkContract } from "./unit-of-work.contract";

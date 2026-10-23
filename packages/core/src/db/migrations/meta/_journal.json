@@ -43,6 +43,13 @@
       "when": 1792451018430,
       "tag": "0005_ask_about_the_whole_case_file",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1792676151164,
+      "tag": "0006_build_the_document_map_and_facts",
+      "breakpoints": true
     }
   ]
 }

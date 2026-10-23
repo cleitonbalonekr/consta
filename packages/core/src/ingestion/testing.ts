@@ -3,13 +3,16 @@ import { degrees, PDFDocument, StandardFonts } from "pdf-lib";
 import type { PDFFont, PDFPage } from "pdf-lib";
 import { CaseFiles } from "../case-files";
 import { Metering } from "../metering";
-import { FakeEmbedder, InlineJobs, InMemoryFileStore, RecordingJobs } from "../ports/fakes";
-import type { Embedder, UnitOfWork } from "../ports";
+import { FakeEmbedder, FakeMapExtractor, InlineJobs, InMemoryFileStore, RecordingJobs } from "../ports/fakes";
+import type { Embedder, MapExtractor, UnitOfWork } from "../ports";
 import type { CaseFileId, LawyerId } from "../shared";
 import { Ingestion } from "./index";
 
-/** A page of a fixture PDF: court text, two columns of text, or a scan with only the court's stamps. */
-export type FixturePage = "digital" | "two-column" | "scanned";
+/**
+ * A page of a fixture PDF: court text, two columns of text, a page full of text (about
+ * 4,500 characters), or a scan with only the court's stamps.
+ */
+export type FixturePage = "digital" | "two-column" | "full" | "scanned";
 
 /** A 1×1 grey PNG, stretched over a scanned page. */
 const SCAN = Uint8Array.from(atob("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAAAAAA6fptVAAAACklEQVR4nGNoAAAAggCBd81ytgAAAABJRU5ErkJggg=="), (c) =>
@@ -31,6 +34,7 @@ export async function fixturePdf(pages: FixturePage[]): Promise<Uint8Array> {
     eSajMargin(page, font);
     if (kind === "digital") drawLines(page, font, 72, digitalLines(number));
     if (kind === "two-column") twoColumns(page, font);
+    if (kind === "full") drawLines(page, font, 72, fullLines(number), { size: 8, lineHeight: 11 });
   });
   return pdf.save();
 }
@@ -45,6 +49,11 @@ export function digitalLines(page: number): string[] {
   ];
 }
 
+/** Sixty lines of about 75 characters, so a few dozen such pages fill a map window. */
+function fullLines(page: number): string[] {
+  return Array.from({ length: 60 }, (_, line) => `Página ${page}, linha ${line + 1}: a autora requer a indenização por danos morais e materiais.`);
+}
+
 export const LEFT_COLUMN = ["A autora alega que o banco", "inscreveu seu nome no cadastro", "de inadimplentes sem aviso."];
 export const RIGHT_COLUMN = ["O réu contesta e afirma que", "a dívida existia e que avisou", "a autora por carta registrada."];
 
@@ -54,8 +63,8 @@ function twoColumns(page: PDFPage, font: PDFFont) {
   drawLines(page, font, 320, RIGHT_COLUMN);
 }
 
-function drawLines(page: PDFPage, font: PDFFont, x: number, lines: string[]) {
-  lines.forEach((line, i) => page.drawText(line, { x, y: 740 - i * 20, size: SIZE, font }));
+function drawLines(page: PDFPage, font: PDFFont, x: number, lines: string[], { size = SIZE, lineHeight = 20 } = {}) {
+  lines.forEach((line, i) => page.drawText(line, { x, y: 740 - i * lineHeight, size, font }));
 }
 
 /** The e-SAJ signature, written up the left margin of every page, scanned pages too. */
@@ -71,11 +80,14 @@ function eSajMargin(page: PDFPage, font: PDFFont) {
  * The modules that ingestion needs, on the given unit of work. InlineJobs starts ingestion
  * when an upload finishes; with `startIngestion: false`, the test runs the steps itself.
  */
-export function ingestionOn(uow: UnitOfWork, options: { embedder?: Embedder; startIngestion?: boolean } = {}) {
-  const { embedder = new FakeEmbedder(), startIngestion = true } = options;
+export function ingestionOn(
+  uow: UnitOfWork,
+  options: { embedder?: Embedder; mapExtractor?: MapExtractor; startIngestion?: boolean } = {},
+) {
+  const { embedder = new FakeEmbedder(), mapExtractor = new FakeMapExtractor(), startIngestion = true } = options;
   const files = new InMemoryFileStore();
   const metering = new Metering({ uow });
-  const ingestion = new Ingestion({ uow, files, embedder, metering });
+  const ingestion = new Ingestion({ uow, files, embedder, mapExtractor, metering });
   const jobs = new InlineJobs(() => (caseFileId) => ingestion.ingest(caseFileId));
   const caseFiles = new CaseFiles({ uow, files, jobs: startIngestion ? jobs : new RecordingJobs(), metering });
 

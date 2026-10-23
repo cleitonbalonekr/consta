@@ -11,12 +11,32 @@ export class ViewerComponent extends BasePage {
     return this.byId("viewer-page-number");
   }
 
+  get nextPage() {
+    return this.byId("viewer-next-page");
+  }
+
+  /** The peça of the document map the viewer was opened at. */
+  get openedPeca() {
+    return this.byId("viewer-peca");
+  }
+
   get marks() {
     return this.byIdPrefix("viewer-mark-");
   }
 
   get renderedPage() {
     return this.byId("viewer-page");
+  }
+
+  /** From now on, counts the bytes of the stored case file that the browser reads in ranges. */
+  recordRangeReads() {
+    const reads = { ranges: 0, bytes: 0 };
+    this.page.on("response", (response) => {
+      if (!new URL(response.url()).pathname.match(/\/case-files\/[^/]+\.pdf$/) || response.status() !== 206) return;
+      reads.ranges += 1;
+      reads.bytes += Number(response.headers()["content-length"]);
+    });
+    return reads;
   }
 
   async expectPage(page: number) {
@@ -26,6 +46,7 @@ export class ViewerComponent extends BasePage {
 
   /** Every mark lies on the rendered page, not just somewhere on screen. */
   async expectMarksOnPage() {
+    await expect(this.marks).not.toHaveCount(0);
     const pageBox = (await this.renderedPage.boundingBox())!;
     for (const mark of await this.marks.all()) {
       await expect(mark).toBeVisible();

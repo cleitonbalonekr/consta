@@ -7,10 +7,13 @@ async function loadPdfJs() {
   return pdfjs;
 }
 
-/** Opens a PDF from a URL, reading only the byte ranges it needs when the server allows it. */
+/**
+ * Opens a PDF from a URL, reading only the byte ranges of the pages it shows when the
+ * server allows range requests. Without the two flags pdf.js streams the whole file behind them.
+ */
 export async function openPdf(url: string): Promise<PDFDocumentProxy> {
   const pdfjs = await loadPdfJs();
-  return pdfjs.getDocument({ url }).promise;
+  return pdfjs.getDocument({ url, disableAutoFetch: true, disableStream: true }).promise;
 }
 
 /** Counts the pages of a PDF the lawyer picked, before any byte is uploaded. */

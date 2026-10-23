@@ -1,8 +1,8 @@
 import { EMBEDDING_DIMENSIONS } from "@consta/core/db";
-import { FakeCitingModel, FakeEmbedder, FakeReranker, InlineJobs, InMemoryMailer } from "@consta/core/fakes";
+import { FakeCitingModel, FakeEmbedder, FakeMapExtractor, FakeReranker, InlineJobs, InMemoryMailer } from "@consta/core/fakes";
 import type { CaseFileId } from "@consta/core";
-import type { CitingModel, Embedder, FileStore, Jobs, Mailer, Reranker } from "@consta/core/ports";
-import { ClaudeCitingModel } from "./anthropic";
+import type { CitingModel, Embedder, FileStore, Jobs, Mailer, MapExtractor, Reranker } from "@consta/core/ports";
+import { ClaudeCitingModel, ClaudeMapExtractor } from "./anthropic";
 import { createResendMailer } from "./resend-mailer";
 import { S3FileStore } from "./s3-file-store";
 import { TriggerJobs } from "./trigger-jobs";
@@ -70,6 +70,13 @@ export class AdaptersFromEnv {
 
   get model(): CitingModel {
     return this.once("model", () => (this.fake ? new FakeCitingModel() : new ClaudeCitingModel({ apiKey: this.required("ANTHROPIC_API_KEY"), model: "claude-sonnet-5-5" })));
+  }
+
+  /** Claude Haiku 5.5 reads the document map (prd-mvp.md); Sonnet 5.5 comes in only if Haiku fails the document map check. */
+  get mapExtractor(): MapExtractor {
+    return this.once("mapExtractor", () =>
+      this.fake ? new FakeMapExtractor() : new ClaudeMapExtractor({ apiKey: this.required("ANTHROPIC_API_KEY"), model: "claude-haiku-5-5" }),
+    );
   }
 
   /** With fakes, sign-in links go to the server console instead of an inbox. */

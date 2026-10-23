@@ -71,7 +71,7 @@ describe("Answering on Postgres", () => {
       }),
     ]);
     const usage = await db.select({ kind: schema.usageEvent.kind }).from(schema.usageEvent).where(eq(schema.usageEvent.caseFileId, caseFileId));
-    expect(usage.map((row) => row.kind).sort()).toEqual(["answer", "embed", "embed", "rerank"]);
+    expect(usage.map((row) => row.kind).sort()).toEqual(["answer", "embed", "embed", "extract", "rerank"]);
   });
 
   it("finds a passage by its words through Portuguese full-text search", async () => {

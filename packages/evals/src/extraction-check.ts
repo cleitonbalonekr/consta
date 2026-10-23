@@ -12,11 +12,12 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { CaseFiles, Ingestion, LawyerId, MAX_PAGES, Metering } from "@consta/core";
-import { FakeEmbedder, InMemoryFileStore, InMemoryUnitOfWork, RecordingJobs } from "@consta/core/fakes";
+import { FakeEmbedder, FakeMapExtractor, InMemoryFileStore, InMemoryUnitOfWork, RecordingJobs } from "@consta/core/fakes";
 import type { InMemoryState } from "@consta/core/fakes";
 import type { Embedder } from "@consta/core/ports";
 import { VoyageEmbedder } from "@consta/adapters";
 import { PDFDocument } from "pdf-lib";
+import { escape } from "./html";
 
 const SAMPLE_PAGES = 20;
 
@@ -37,7 +38,8 @@ class ExtractionCheck {
     const uow = new InMemoryUnitOfWork();
     const files = new InMemoryFileStore();
     const metering = new Metering({ uow });
-    const ingestion = new Ingestion({ uow, files, embedder: this.embedder, metering });
+    // This check is about reading pages, so the free fake builds the document map.
+    const ingestion = new Ingestion({ uow, files, embedder: this.embedder, mapExtractor: new FakeMapExtractor(), metering });
     const caseFiles = new CaseFiles({ uow, files, jobs: new RecordingJobs(), metering });
     const lawyer = LawyerId("extraction-check");
     // Any case file the pilot accepts, past the Trial quota.
@@ -130,10 +132,6 @@ async function samplePdf(pdf: Uint8Array, sample: number[]) {
   const out = await PDFDocument.create();
   for (const page of await out.copyPages(source, sample.map((number) => number - 1))) out.addPage(page);
   return out.save();
-}
-
-function escape(text: string) {
-  return text.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;");
 }
 
 async function main() {

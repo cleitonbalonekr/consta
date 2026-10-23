@@ -217,7 +217,10 @@ export const peca = pgTable(
     lastPage: integer("last_page").notNull(),
     summary: text("summary").notNull(),
   },
-  (t) => [index("peca_case_file_first_page_idx").on(t.caseFileId, t.firstPage)],
+  (t) => [
+    index("peca_case_file_first_page_idx").on(t.caseFileId, t.firstPage),
+    check("peca_pages_check", sql`${t.firstPage} <= ${t.lastPage}`),
+  ],
 );
 
 export const fact = pgTable(
@@ -231,7 +234,11 @@ export const fact = pgTable(
     context: text("context").notNull(),
     page: integer("page").notNull(),
   },
-  (t) => [index("fact_case_file_kind_idx").on(t.caseFileId, t.kind)],
+  (t) => [
+    index("fact_case_file_kind_idx").on(t.caseFileId, t.kind),
+    // A fact always names a stored page; a range read again deletes its pages' facts with them.
+    foreignKey({ columns: [t.caseFileId, t.page], foreignColumns: [page.caseFileId, page.number] }).onDelete("cascade"),
+  ],
 );
 
 export const question = pgTable(

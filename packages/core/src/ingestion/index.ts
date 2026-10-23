@@ -1,9 +1,10 @@
 import { CaseFileLifecycle } from "../case-files";
 import type { IngestionTarget } from "../case-files";
 import type { Metering } from "../metering";
-import type { Embedder, FileStore, UnitOfWork } from "../ports";
+import type { Embedder, FactDraft, FileStore, MapExtractor, PageText, PecaDraft, UnitOfWork } from "../ports";
 import { PageRange } from "../shared";
 import type { CaseFileId } from "../shared";
+import { DocumentMapDraft, PageWindows } from "./document-map";
 import type { Page, PageRecord } from "./page";
 import { PdfPageReader } from "./pdf-page-reader";
 
@@ -15,6 +16,13 @@ export const PAGES_PER_RANGE = 100;
 
 /** A failed range runs again three times (prd-mvp.md, F3) before the case file fails. */
 export const RANGE_ATTEMPTS = 4;
+
+/**
+ * Characters of page text per map window, about 30,000 tokens of Portuguese. Far under the
+ * 100,000 tokens above which Claude Haiku 5.5 costs five times as much, so the instructions
+ * and the open peça fit too, and a window's peças and facts fit in one answer.
+ */
+const MAP_WINDOW_CHARS = 90_000;
 
 /** Planning and mapping run again once before the case file fails. */
 const STEP_ATTEMPTS = 2;
@@ -50,17 +58,24 @@ export interface IngestionRepository {
   countPages(caseFileId: CaseFileId): Promise<number>;
   /** The numbers of the case file's scanned pages, in order. */
   scannedPages(caseFileId: CaseFileId): Promise<number[]>;
+  /** The length of each page's text, in page order. A scanned page has none. */
+  pageLengths(caseFileId: CaseFileId): Promise<{ page: number; chars: number }[]>;
+  /** The text and source of each page in the range, in page order. */
+  pageTexts(caseFileId: CaseFileId, range: PageRange): Promise<PageText[]>;
+  /** Replaces the case file's document map and facts. Every fact's page is stored. */
+  replaceDocumentMap(caseFileId: CaseFileId, pecas: PecaDraft[], facts: FactDraft[]): Promise<void>;
 }
 
 export type IngestionDeps = {
   uow: UnitOfWork;
   files: FileStore;
   embedder: Embedder;
+  mapExtractor: MapExtractor;
   metering: Metering;
 };
 
 /**
- * Turns an uploaded case file into pages and passages, and, from ticket 09, a document map and facts.
+ * Turns an uploaded case file into pages and passages, then a document map and facts.
  *
  * `ingest` runs it all and ends with the case file ready or failed. A runner that queues the
  * ranges elsewhere calls `ingestRange` for each, and `giveUp` when the run itself dies. Every
@@ -69,14 +84,16 @@ export type IngestionDeps = {
 export class Ingestion {
   private readonly uow: UnitOfWork;
   private readonly embedder: Embedder;
+  private readonly mapExtractor: MapExtractor;
   private readonly metering: Metering;
   private readonly lifecycle: CaseFileLifecycle;
   private readonly reader: PdfPageReader;
   private readonly inProcess: RangeRunner = { run: (caseFileId, ranges) => this.runInProcess(caseFileId, ranges) };
 
-  constructor({ uow, files, embedder, metering }: IngestionDeps) {
+  constructor({ uow, files, embedder, mapExtractor, metering }: IngestionDeps) {
     this.uow = uow;
     this.embedder = embedder;
+    this.mapExtractor = mapExtractor;
     this.metering = metering;
     // The case file's status changes go through the Case files module's interface for the task runtime.
     this.lifecycle = new CaseFileLifecycle({ uow, metering });
@@ -132,18 +149,31 @@ export class Ingestion {
   }
 
   /**
-   * Marks the case file ready, with the scanned pages it did not read. Ticket 09 builds
-   * the document map and facts here first; until then the document map is empty.
-   * Throws when a range is not done.
+   * Builds the document map and facts from windows of pages, then saves them and marks the
+   * case file ready, with the scanned pages it did not read, in one run. Each window's model
+   * call comes first and its cost is recorded at once (ADR-0007). Throws when a range is not done.
    */
   private async map(caseFileId: CaseFileId): Promise<void> {
-    const scanned = await this.uow.run(async (repos) => {
+    const { lawyer } = await this.lifecycle.target(caseFileId);
+    const lengths = await this.uow.run(async (repos) => {
       const unfinished = await repos.ingestion.countUnfinishedRanges(caseFileId);
       if (unfinished > 0) throw new Error(`Case file ${caseFileId} has ${unfinished} ranges not done.`);
       await this.lifecycle.startMapping(caseFileId);
-      return repos.ingestion.scannedPages(caseFileId);
+      return repos.ingestion.pageLengths(caseFileId);
     });
-    await this.lifecycle.markReady(caseFileId, scanned);
+
+    const draft = new DocumentMapDraft();
+    for (const window of PageWindows.plan(lengths, MAP_WINDOW_CHARS)) {
+      const pages = await this.uow.run((repos) => repos.ingestion.pageTexts(caseFileId, window));
+      const { usage, ...read } = await this.mapExtractor.extract({ pages, openPeca: draft.openPeca });
+      await this.metering.record(lawyer, caseFileId, usage);
+      draft.add(pages, read);
+    }
+
+    await this.uow.run(async (repos) => {
+      await repos.ingestion.replaceDocumentMap(caseFileId, draft.pecas, draft.facts);
+      await this.lifecycle.markReady(caseFileId, await repos.ingestion.scannedPages(caseFileId));
+    });
   }
 
   /** The failure reason a lawyer reads when ranges could not be read after every attempt. */

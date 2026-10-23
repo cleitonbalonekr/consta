@@ -59,6 +59,36 @@ describe("database schema", () => {
     expect(usage).toEqual([{ caseFileId: null }]);
   });
 
+  it("refuses a peça whose last page comes before its first", async () => {
+    const db = await createTestDb();
+    const lawyerId = await insertLawyer(db);
+    const [caseFile] = await db
+      .insert(schema.caseFile)
+      .values({ lawyerId, name: "Autos 123", storageKey: "case-files/1.pdf", sizeBytes: 1, pageCount: 9 })
+      .returning();
+    const peca = { caseFileId: caseFile!.id, type: "sentenca" as const, title: "Sentença", summary: "Procedente." };
+
+    await db.insert(schema.peca).values({ ...peca, firstPage: 5, lastPage: 5 });
+    await expect(db.insert(schema.peca).values({ ...peca, firstPage: 6, lastPage: 5 })).rejects.toThrow();
+  });
+
+  it("deletes a page's facts with the page, as a range read again does", async () => {
+    const db = await createTestDb();
+    const lawyerId = await insertLawyer(db);
+    const [caseFile] = await db
+      .insert(schema.caseFile)
+      .values({ lawyerId, name: "Autos 123", storageKey: "case-files/1.pdf", sizeBytes: 1, pageCount: 2 })
+      .returning();
+    const caseFileId = caseFile!.id;
+    await db.insert(schema.page).values([1, 2].map((number) => ({ caseFileId, number, source: "digital" as const, text: "", blocks: [] })));
+    const fact = { caseFileId, kind: "person" as const, value: "Maria Aparecida Souza", context: "autora" };
+    await db.insert(schema.fact).values([1, 2].map((page) => ({ ...fact, page })));
+
+    await db.delete(schema.page).where(sql`${schema.page.caseFileId} = ${caseFileId} AND ${schema.page.number} = 1`);
+
+    expect(await db.select({ page: schema.fact.page }).from(schema.fact)).toEqual([{ page: 2 }]);
+  });
+
   it("refuses a case file for a lawyer who has no account", async () => {
     const db = await createTestDb();
 

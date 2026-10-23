@@ -5,6 +5,8 @@ export type FileStoreSetup = () => Promise<{
   files: FileStore;
   /** What the browser does: PUTs the bytes of one part to the URL that signPart gives. */
   putPart: (url: string, bytes: Uint8Array) => Promise<void>;
+  /** What the viewer does: GETs the byte range [start, end) of the URL that readUrl gives. */
+  readRange: (url: string, range: { start: number; end: number }) => Promise<{ status: number; bytes: Uint8Array }>;
 }>;
 
 /** S3 refuses a part under 5 MiB unless it is the last one. */
@@ -66,6 +68,17 @@ export function fileStoreContract(setup: FileStoreSetup) {
       await files.completeMultipart(key, uploadId);
 
       expect(await files.read(key, { start: 10, end: 20 })).toEqual(first.slice(10, 20));
+    });
+
+    it("gives a read URL that serves a byte range on its own, so the viewer loads only the pages it shows", async () => {
+      const { files, putPart, readRange } = await setup();
+      const { key, uploadId, second } = await uploadTwoParts(files, putPart);
+      await files.completeMultipart(key, uploadId);
+
+      const { status, bytes } = await readRange(await files.readUrl(key, 60), { start: FIRST_PART, end: FIRST_PART + 100 });
+
+      expect(status).toBe(206);
+      expect(bytes).toEqual(second.slice(0, 100));
     });
 
     it("removes an object, and removing a missing key is not an error", async () => {

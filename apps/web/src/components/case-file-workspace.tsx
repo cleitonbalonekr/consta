@@ -1,6 +1,6 @@
 "use client";
 
-import type { Citation, PecaView, QuickAction } from "@consta/core";
+import type { Citation, Folhas, PecaView, QuickAction } from "@consta/core";
 import { ArrowUp, Banknote, CalendarClock, LoaderCircle, ShieldCheck, Sparkles, TriangleAlert, Users } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { answerStates, failAnswer, startAnswer } from "@/lib/answer-session";
@@ -9,6 +9,7 @@ import type { QuestionRequest } from "@/lib/question-request";
 import { Answer } from "./answer";
 import { DocumentMap, pageRange } from "./document-map";
 import { PdfViewer } from "./pdf-viewer";
+import type { ViewerTarget } from "./pdf-viewer";
 
 const QUICK_ACTIONS: Array<{ action: QuickAction; label: string; icon: typeof Users }> = [
   { action: "timeline", label: "Linha do tempo", icon: CalendarClock },
@@ -18,14 +19,15 @@ const QUICK_ACTIONS: Array<{ action: QuickAction; label: string; icon: typeof Us
 
 const SUGGESTIONS = ["Do que trata esta ação?", "O que a sentença decidiu?", "Quais provas foram produzidas?"];
 
-type CaseFileWorkspaceProps = { caseFileId: string; documentMap: PecaView[]; pdfUrl: string };
+type CaseFileWorkspaceProps = { caseFileId: string; documentMap: PecaView[]; folhas: Folhas; pdfUrl: string };
 
 /** A ready case file: the document map, the conversation, the question composer and the viewer. */
-export function CaseFileWorkspace({ caseFileId, documentMap, pdfUrl }: CaseFileWorkspaceProps) {
+export function CaseFileWorkspace({ caseFileId, documentMap, folhas, pdfUrl }: CaseFileWorkspaceProps) {
   const [peca, setPeca] = useState<PecaView | null>(null);
   const [scopedToPeca, setScopedToPeca] = useState(false);
   const [question, setQuestion] = useState("");
-  const [openCitation, setOpenCitation] = useState<Citation | null>(null);
+  const [viewerTarget, setViewerTarget] = useState<ViewerTarget | null>(null);
+  const openCitation = viewerTarget && "citation" in viewerTarget ? viewerTarget.citation : null;
   const { answer, ask } = useAnswer(caseFileId);
   const selectedPeca = scopedToPeca ? peca : null;
 
@@ -45,13 +47,14 @@ export function CaseFileWorkspace({ caseFileId, documentMap, pdfUrl }: CaseFileW
           <h2 className="text-sm font-semibold text-foreground">Mapa dos autos</h2>
           <span className="text-xs tabular-nums text-subtle">{documentMap.length} peças</span>
         </div>
-        <p className="px-4 pt-1 pb-3 text-xs text-subtle">Escolha uma peça para perguntar só sobre ela.</p>
+        <p className="px-4 pt-1 pb-3 text-xs text-subtle">Escolha uma peça para ver a primeira página e perguntar só sobre ela.</p>
         <div className="max-h-64 overflow-y-auto px-2 pb-4 lg:max-h-none">
           <DocumentMap
             documentMap={documentMap}
             selectedPecaId={selectedPeca?.id ?? null}
             onSelect={(chosen) => {
               setPeca(chosen);
+              setViewerTarget({ peca: chosen });
               setScopedToPeca(true);
             }}
           />
@@ -62,7 +65,7 @@ export function CaseFileWorkspace({ caseFileId, documentMap, pdfUrl }: CaseFileW
         <div className="flex-1 lg:overflow-y-auto">
           <div className="mx-auto w-full max-w-3xl px-4 py-8 sm:px-6">
             {answer ? (
-              <Conversation answer={answer} openCitation={openCitation} onOpenCitation={setOpenCitation} />
+              <Conversation answer={answer} openCitation={openCitation} onOpenCitation={(citation) => setViewerTarget({ citation })} />
             ) : (
               <EmptyConversation onSuggestion={askQuestion} />
             )}
@@ -126,7 +129,7 @@ export function CaseFileWorkspace({ caseFileId, documentMap, pdfUrl }: CaseFileW
         </div>
       </section>
 
-      {openCitation && <ViewerPane pdfUrl={pdfUrl} citation={openCitation} onClose={() => setOpenCitation(null)} />}
+      {viewerTarget && <ViewerPane pdfUrl={pdfUrl} folhas={folhas} target={viewerTarget} onClose={() => setViewerTarget(null)} />}
     </div>
   );
 }
@@ -232,8 +235,10 @@ function Streaming({ first }: { first: boolean }) {
   );
 }
 
+type ViewerPaneProps = { pdfUrl: string; folhas: Folhas; target: ViewerTarget; onClose: () => void };
+
 /** The viewer beside the conversation on wide screens, over it on narrower ones. */
-function ViewerPane({ pdfUrl, citation, onClose }: { pdfUrl: string; citation: Citation; onClose: () => void }) {
+function ViewerPane({ pdfUrl, folhas, target, onClose }: ViewerPaneProps) {
   useEffect(() => {
     const closeOnEscape = (event: KeyboardEvent) => event.key === "Escape" && onClose();
     window.addEventListener("keydown", closeOnEscape);
@@ -244,7 +249,7 @@ function ViewerPane({ pdfUrl, citation, onClose }: { pdfUrl: string; citation: C
     <>
       <div className="fixed inset-0 z-30 bg-black/40 backdrop-blur-sm xl:hidden" onClick={onClose} aria-hidden />
       <div className="fixed inset-y-0 right-0 z-40 w-full max-w-xl border-l border-line shadow-2xl xl:static xl:z-auto xl:w-[38rem] xl:max-w-none xl:shrink-0 xl:shadow-none">
-        <PdfViewer pdfUrl={pdfUrl} citation={citation} onClose={onClose} />
+        <PdfViewer pdfUrl={pdfUrl} folhas={folhas} target={target} onClose={onClose} />
       </div>
     </>
   );

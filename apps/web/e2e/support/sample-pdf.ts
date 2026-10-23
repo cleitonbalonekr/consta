@@ -24,9 +24,10 @@ export async function pdfWithPages(pages: number) {
 
 /**
  * A case file of digital pages, each with a "fls." stamp and a few lines of text, and
- * scanned pages (an image with no text) at the given page numbers.
+ * scanned pages (an image with no text) at the given page numbers. `attachmentBytes` of
+ * random bytes make the file larger without adding pages.
  */
-export async function pdfWithText(pages: number, scanned: number[] = []) {
+export async function pdfWithText(pages: number, scanned: number[] = [], { attachmentBytes = 0 } = {}) {
   const pdf = await PDFDocument.create();
   const font = await pdf.embedFont(StandardFonts.Helvetica);
   const scan = await pdf.embedPng(SCAN);
@@ -41,6 +42,7 @@ export async function pdfWithText(pages: number, scanned: number[] = []) {
       page.drawText(`Página ${number}, linha ${line + 1}: a autora requer a indenização por danos morais.`, { x: 72, y: 740 - line * 20, size: 11, font });
     }
   }
+  if (attachmentBytes > 0) await pdf.attach(randomBytes(attachmentBytes), "anexo.bin", { mimeType: "application/octet-stream" });
   return Buffer.from(await pdf.save());
 }
 
