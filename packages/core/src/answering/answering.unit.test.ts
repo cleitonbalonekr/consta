@@ -3,7 +3,7 @@ import type { CitingModel, CitingModelEvent, Source } from "../ports";
 import { FakeCitingModel, FakeReranker, InMemoryUnitOfWork } from "../ports/fakes";
 import { LawyerId, NotFound, NotImplemented, PecaId } from "../shared";
 import type { CaseFileId } from "../shared";
-import { PASSAGES_FOR_MODEL, PECA_CHAR_BUDGET, SUMMARY_PRESET } from "./index";
+import { PASSAGES_FOR_MODEL, PECA_CHAR_BUDGET, SUMMARY_QUESTION } from "./index";
 import type { AnswerEvent, Statement } from "./index";
 import { answeringOn, sourceOn } from "./testing";
 
@@ -355,11 +355,11 @@ describe("Answering.ask for the summary of a peça", () => {
 
     const answer = await events(lawyer, { caseFileId, summarize: peca!.id });
 
-    expect(model.calls[0]!.question).toBe(SUMMARY_PRESET);
+    expect(model.calls[0]!.question).toBe(SUMMARY_QUESTION);
     expect(model.calls[0]!.sources.map((source) => source.title)).toEqual(["Página 1 (fls. 2)", "Página 2 (fls. 3)"]);
     expect(model.calls[0]!.cacheSources).toBe(true);
     expect(statements(answer).map((statement) => statement.citations.map((citation) => citation.page))).toEqual([[1], [2]]);
-    expect(uow.state.answering.questions).toEqual([expect.objectContaining({ scope: { kind: "peca", pecaId: peca!.id }, text: SUMMARY_PRESET })]);
+    expect(uow.state.answering.questions).toEqual([expect.objectContaining({ scope: { kind: "peca", pecaId: peca!.id }, text: SUMMARY_QUESTION })]);
   });
 
   it("throws NotFound for another lawyer's case file", async () => {

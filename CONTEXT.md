@@ -55,7 +55,7 @@ What a question is about: the whole case file, or one peça.
 _Avoid_: mode, context, filter
 
 **Peça summary**:
-A question about one peça that asks for its summary with a preset text, answered in cited paragraphs. It is not the short summary of each peça in the document map.
+A question about one peça whose fixed text asks for its summary, answered in cited paragraphs. It is not the short summary of each peça in the document map.
 _Avoid_: digest, overview
 
 **Quick action**:

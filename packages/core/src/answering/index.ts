@@ -13,9 +13,12 @@ export type RankedPassages = { byVector: FoundPassage[]; byText: FoundPassage[] 
 
 export type Scope = { kind: "whole-file" } | { kind: "peca"; pecaId: PecaId };
 
+/** A question in one scope. A peça summary becomes one, with SUMMARY_QUESTION as its text. */
+export type ScopedQuestion = { caseFileId: CaseFileId; scope: Scope; text: string };
+
 export type QuestionInput =
-  | { caseFileId: CaseFileId; scope: Scope; text: string }
-  /** The summary of one peça: a question about the peça whose text is SUMMARY_PRESET. */
+  | ScopedQuestion
+  /** The summary of one peça: a question about the peça whose text is SUMMARY_QUESTION. */
   | { caseFileId: CaseFileId; summarize: PecaId }
   | { caseFileId: CaseFileId; quickAction: QuickAction };
 
@@ -90,8 +93,8 @@ export const PASSAGES_FOR_MODEL = 20;
  */
 export const PECA_CHAR_BUDGET = 450_000;
 
-/** The question text of a peça summary (prd-mvp.md, F8). It is saved as the question's text. */
-export const SUMMARY_PRESET =
+/** The text of a peça summary's question (prd-mvp.md, F8). It is saved as the question's text. */
+export const SUMMARY_QUESTION =
   "Resuma esta peça em poucos parágrafos curtos: quem a apresenta, o que pede ou decide, os fundamentos e as conclusões. Escreva cada parágrafo em uma única linha.";
 
 const ANSWER_FORM = [
@@ -153,7 +156,7 @@ export class Answering {
       return;
     }
 
-    const { scope, text } = "summarize" in input ? { scope: { kind: "peca", pecaId: input.summarize } as const, text: SUMMARY_PRESET } : input;
+    const { scope, text } = "summarize" in input ? { scope: { kind: "peca", pecaId: input.summarize } as const, text: SUMMARY_QUESTION } : input;
     const reading =
       scope.kind === "peca"
         ? await this.readPeca(caseFileId, scope.pecaId)
@@ -166,7 +169,7 @@ export class Answering {
   }
 
   /** Streams the statements of the answer, then saves the question. */
-  private async *answer(lawyer: LawyerId, question: { caseFileId: CaseFileId; scope: Scope; text: string }, reading: Reading): AsyncIterable<AnswerEvent> {
+  private async *answer(lawyer: LawyerId, question: ScopedQuestion, reading: Reading): AsyncIterable<AnswerEvent> {
     const { caseFileId, scope, text } = question;
     const builder = new StatementBuilder(new Map(reading.passages.map((passage) => [passage.id, passage])));
     const answer: Statement[] = [];

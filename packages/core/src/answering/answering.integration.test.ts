@@ -5,7 +5,7 @@ import { createTestDb, insertLawyer } from "../db/testing";
 import { FakeCitingModel } from "../ports/fakes";
 import { NotFound } from "../shared";
 import type { CaseFileId } from "../shared";
-import { PECA_CHAR_BUDGET, SUMMARY_PRESET } from "./index";
+import { PECA_CHAR_BUDGET, SUMMARY_QUESTION } from "./index";
 import type { AnswerEvent, Statement } from "./index";
 import { answeringOn, sourceOn } from "./testing";
 
@@ -143,11 +143,11 @@ describe("Answering about one peça on Postgres", () => {
 
     const answer = await events(lawyer, { caseFileId, summarize: pecas[1].id });
 
-    expect(model.calls[0]!.question).toBe(SUMMARY_PRESET);
+    expect(model.calls[0]!.question).toBe(SUMMARY_QUESTION);
     expect(model.calls[0]!.sources.map((source) => source.title)).toEqual(["Página 3 (fls. 4)"]);
     expect(statements(answer).map((statement) => statement.citations[0].page)).toEqual([3]);
     const rows = await db.select().from(schema.question).where(eq(schema.question.caseFileId, caseFileId));
-    expect(rows).toEqual([expect.objectContaining({ scope: "peca", pecaId: pecas[1].id, text: SUMMARY_PRESET })]);
+    expect(rows).toEqual([expect.objectContaining({ scope: "peca", pecaId: pecas[1].id, text: SUMMARY_QUESTION })]);
   });
 
   it("refuses a peça over the budget as too large, calls no model and saves nothing", async () => {
