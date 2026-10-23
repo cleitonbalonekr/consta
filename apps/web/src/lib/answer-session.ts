@@ -1,4 +1,4 @@
-import type { AnswerEvent, Statement } from "@consta/core";
+import type { AnswerEvent, Statement, UnreadPages } from "@consta/core";
 import { decodeAnswerEvents } from "./answer-stream";
 
 /** The answer on screen, from the question until its stream ends. */
@@ -9,11 +9,14 @@ export type AnswerState = {
   statements: Statement[];
   state: "streaming" | "done" | "refused" | "error";
   message?: string;
+  /** The scanned pages of the peça that the answer could not read, once done. */
+  unreadPages?: UnreadPages;
 };
 
 const REFUSALS: Record<Extract<AnswerEvent, { type: "refused" }>["reason"], string> = {
   "not-ready": "Estes autos ainda estão sendo lidos. Pergunte de novo quando a leitura terminar.",
   "scope-too-large": "Esta peça é grande demais para ler de uma vez. Escolha uma peça menor ou pergunte sobre os autos inteiros.",
+  "not-readable": "As páginas desta peça são digitalizadas, e ainda não lemos páginas digitalizadas.",
   declined: "Não conseguimos responder a esta pergunta. Tente reformulá-la.",
 };
 
@@ -53,7 +56,7 @@ function applyEvent(answer: AnswerState, event: AnswerEvent): AnswerState {
     case "statement":
       return { ...answer, statements: [...answer.statements, event.statement] };
     case "done":
-      return { ...answer, state: "done" };
+      return { ...answer, state: "done", unreadPages: event.unreadPages };
     case "refused":
       // A declined answer is partial, so what was shown goes.
       return { ...answer, statements: [], state: "refused", message: REFUSALS[event.reason] };

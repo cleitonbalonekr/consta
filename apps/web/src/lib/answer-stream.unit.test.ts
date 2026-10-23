@@ -11,7 +11,7 @@ const events: AnswerEvent[] = [
       citations: [{ page: 10, folha: "10", quote: "JULGO PROCEDENTE", boxes: [{ x0: 0.1, y0: 0.2, x1: 0.5, y1: 0.25 }] }],
     },
   },
-  { type: "done", questionId: QuestionId("q-1"), dropped: 1 },
+  { type: "done", questionId: QuestionId("q-1"), dropped: 1, unreadPages: [] },
 ];
 
 async function* fromArray<T>(items: T[]) {

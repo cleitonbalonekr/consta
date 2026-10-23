@@ -5,7 +5,7 @@ import { createTestDb, insertLawyer } from "../db/testing";
 import { FakeCitingModel } from "../ports/fakes";
 import { NotFound } from "../shared";
 import type { CaseFileId } from "../shared";
-import { PECA_CHAR_BUDGET, SUMMARY_QUESTION } from "./index";
+import { PECA_CHAR_BUDGET, PECA_SUMMARY_PROMPT, PECA_SUMMARY_TEXT } from "./index";
 import type { AnswerEvent, Statement } from "./index";
 import { answeringOn, sourceOn } from "./testing";
 
@@ -143,11 +143,11 @@ describe("Answering about one peça on Postgres", () => {
 
     const answer = await events(lawyer, { caseFileId, summarize: pecas[1].id });
 
-    expect(model.calls[0]!.question).toBe(SUMMARY_QUESTION);
+    expect(model.calls[0]!.question).toBe(PECA_SUMMARY_PROMPT);
     expect(model.calls[0]!.sources.map((source) => source.title)).toEqual(["Página 3 (fls. 4)"]);
     expect(statements(answer).map((statement) => statement.citations[0].page)).toEqual([3]);
     const rows = await db.select().from(schema.question).where(eq(schema.question.caseFileId, caseFileId));
-    expect(rows).toEqual([expect.objectContaining({ scope: "peca", pecaId: pecas[1].id, text: SUMMARY_QUESTION })]);
+    expect(rows).toEqual([expect.objectContaining({ scope: "peca", pecaId: pecas[1].id, text: PECA_SUMMARY_TEXT })]);
   });
 
   it("refuses a peça over the budget as too large, calls no model and saves nothing", async () => {
@@ -162,6 +162,17 @@ describe("Answering about one peça on Postgres", () => {
     expect(answer).toEqual([{ type: "refused", reason: "scope-too-large" }]);
     expect(model.calls).toEqual([]);
     expect(await db.select().from(schema.question)).toEqual([]);
+  });
+
+  it("refuses a peça whose pages are all scanned as not readable, and names the scanned pages it left out of another", async () => {
+    const model = new FakeCitingModel();
+    const { ingest, documentMap, events, lawyer } = await setup({ model });
+    const caseFileId = await ingest(lawyer, ["scanned", "scanned", "digital", "scanned"]);
+    const [scanned, partly] = await documentMap(lawyer, caseFileId);
+
+    expect(await events(lawyer, { caseFileId, summarize: scanned!.id })).toEqual([{ type: "refused", reason: "not-readable" }]);
+    expect((await events(lawyer, { caseFileId, summarize: partly!.id })).at(-1)).toMatchObject({ type: "done", unreadPages: [{ first: 4, last: 4 }] });
+    expect(model.calls.map((call) => call.sources.map((source) => source.title))).toEqual([["Página 3 (fls. 4)"]]);
   });
 
   it("throws NotFound for another case file's peça", async () => {

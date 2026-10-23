@@ -13,6 +13,15 @@ describe("CalendarDate", () => {
 });
 
 describe("PageRange", () => {
+  it("groups pages in order into the fewest ranges", () => {
+    expect(PageRange.group([3, 4, 5, 9, 11, 12]).map(({ first, last }) => [first, last])).toEqual([
+      [3, 5],
+      [9, 9],
+      [11, 12],
+    ]);
+    expect(PageRange.group([])).toEqual([]);
+  });
+
   it("contains its first and last pages and those between, and no other", () => {
     const range = PageRange.from(11, 20);
 

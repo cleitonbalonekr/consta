@@ -1,8 +1,8 @@
 import type { Metering } from "../metering";
 import type { UnitOfWork } from "../ports";
-import { NotFound } from "../shared";
+import { NotFound, PageRange } from "../shared";
 import type { CaseFileId, CaseFileStatus, LawyerId } from "../shared";
-import type { CaseFile, UnreadPages } from "./case-file";
+import type { CaseFile } from "./case-file";
 
 /** What Ingestion needs to know about the case file it reads. */
 export type IngestionTarget = {
@@ -55,7 +55,7 @@ export class CaseFileLifecycle {
 
   /** `scannedPages` are the numbers of the pages ingestion did not read, in order. */
   async markReady(caseFileId: CaseFileId, scannedPages: number[]) {
-    await this.step(caseFileId, "ready", (caseFile) => caseFile.markReady(this.now(), CaseFileLifecycle.unreadPages(scannedPages)));
+    await this.step(caseFileId, "ready", (caseFile) => caseFile.markReady(this.now(), PageRange.group(scannedPages)));
   }
 
   /**
@@ -89,16 +89,5 @@ export class CaseFileLifecycle {
       await repos.caseFiles.save(caseFile);
       return result;
     });
-  }
-
-  /** [3, 4, 5, 9] as 3 to 5 and 9 to 9. */
-  private static unreadPages(pages: number[]): UnreadPages {
-    const ranges: UnreadPages = [];
-    for (const page of pages) {
-      const last = ranges.at(-1);
-      if (last && last.last + 1 === page) last.last = page;
-      else ranges.push({ first: page, last: page });
-    }
-    return ranges;
   }
 }

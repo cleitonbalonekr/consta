@@ -215,14 +215,23 @@ class InMemoryAnsweringRepository implements AnsweringRepository {
     return { byVector: byVector.map((passage) => this.found(passage)), byText: byText.map((passage) => this.found(passage)) };
   }
 
-  async pecaPages(caseFileId: CaseFileId, pecaId: PecaId): Promise<PecaPage[] | null> {
+  async pecaSize(caseFileId: CaseFileId, pecaId: PecaId) {
+    const pages = this.pagesOf(caseFileId, pecaId);
+    return pages && { chars: pages.reduce((total, page) => total + page.text.length, 0) };
+  }
+
+  async pecaPages(caseFileId: CaseFileId, pecaId: PecaId): Promise<PecaPage[]> {
+    return (this.pagesOf(caseFileId, pecaId) ?? []).map(({ number, folha, source, blocks }) => ({ page: number, folha, source, blocks: structuredClone(blocks) }));
+  }
+
+  /** The stored pages of the peça's page range in order, or null when the case file has no such peça. */
+  private pagesOf(caseFileId: CaseFileId, pecaId: PecaId) {
     const { pecas, pages } = this.state().ingestion;
     const peca = pecas.find((candidate) => candidate.id === pecaId && candidate.caseFileId === caseFileId);
     if (!peca) return null;
     return pages
       .filter((page) => page.caseFileId === caseFileId && page.number >= peca.firstPage && page.number <= peca.lastPage)
-      .sort((a, b) => a.number - b.number)
-      .map(({ number, folha, source, text, blocks }) => ({ page: number, folha, source, text, boxes: blocks.map((block) => block.box) }));
+      .sort((a, b) => a.number - b.number);
   }
 
   async saveQuestion(question: QuestionRecord) {

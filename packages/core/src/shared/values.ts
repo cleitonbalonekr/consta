@@ -18,6 +18,17 @@ export class PageRange {
   contains(page: number): boolean {
     return page >= this.first && page <= this.last;
   }
+
+  /** Pages in order as the fewest ranges: [3, 4, 5, 9] as 3 to 5 and 9 to 9. */
+  static group(pages: number[]): PageRange[] {
+    const ranges: Array<{ first: number; last: number }> = [];
+    for (const page of pages) {
+      const last = ranges.at(-1);
+      if (last && last.last + 1 === page) last.last = page;
+      else ranges.push({ first: page, last: page });
+    }
+    return ranges.map(({ first, last }) => PageRange.from(first, last));
+  }
 }
 
 /** A day of the calendar as YYYY-MM-DD, the form the date columns store. */

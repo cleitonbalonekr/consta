@@ -3,7 +3,7 @@ import type { CitingModel, CitingModelEvent, Source } from "../ports";
 import { FakeCitingModel, FakeReranker, InMemoryUnitOfWork } from "../ports/fakes";
 import { LawyerId, NotFound, NotImplemented, PecaId } from "../shared";
 import type { CaseFileId } from "../shared";
-import { PASSAGES_FOR_MODEL, PECA_CHAR_BUDGET, SUMMARY_QUESTION } from "./index";
+import { PASSAGES_FOR_MODEL, PECA_CHAR_BUDGET, PECA_SUMMARY_PROMPT } from "./index";
 import type { AnswerEvent, Statement } from "./index";
 import { answeringOn, sourceOn } from "./testing";
 
@@ -49,7 +49,7 @@ describe("Answering.ask about the whole case file", () => {
       },
     ]);
     expect(passageOn(caseFileId, 2).quote).toContain("Página 2: MARIA APARECIDA SOUZA");
-    expect(events.at(-1)).toEqual({ type: "done", questionId: expect.any(String), dropped: 0 });
+    expect(events.at(-1)).toEqual({ type: "done", questionId: expect.any(String), dropped: 0, unreadPages: [] });
   });
 
   it("drops every line without a citation, counts it, and saves the question with what was shown", async () => {
@@ -191,7 +191,7 @@ describe("Answering.ask about the whole case file", () => {
 
     const events = await ask(lawyer, caseFileId);
 
-    expect(events).toEqual([{ type: "done", questionId: expect.any(String), dropped: 0 }]);
+    expect(events).toEqual([{ type: "done", questionId: expect.any(String), dropped: 0, unreadPages: [] }]);
     expect(model.calls).toEqual([]);
     expect(uow.state.answering.questions.map((question) => question.answer)).toEqual([[]]);
   });
@@ -303,15 +303,27 @@ describe("Answering.ask about one peça", () => {
     ]);
   });
 
-  it("leaves the scanned pages out, as no statement can cite them", async () => {
+  it("leaves the scanned pages out, as no statement can cite them, and names them when done", async () => {
     const model = new FakeCitingModel();
     const { ingest, documentMap, events, lawyer } = await setup({ model });
     const caseFileId = await ingest(lawyer, ["digital", "scanned"]);
     const [peca] = await documentMap(lawyer, caseFileId);
 
-    await events(lawyer, { caseFileId, scope: { kind: "peca", pecaId: peca!.id }, text: "O que houve?" });
+    const answer = await events(lawyer, { caseFileId, scope: { kind: "peca", pecaId: peca!.id }, text: "O que houve?" });
 
     expect(model.calls[0]!.sources.map((source) => source.title)).toEqual(["Página 1 (fls. 2)"]);
+    expect(answer.at(-1)).toEqual({ type: "done", questionId: expect.any(String), dropped: 1, unreadPages: [{ first: 2, last: 2 }] });
+  });
+
+  it("refuses a peça whose pages are all scanned as not readable, without calling the model, and saves nothing", async () => {
+    const model = new FakeCitingModel();
+    const { ingest, documentMap, events, lawyer, uow } = await setup({ model });
+    const caseFileId = await ingest(lawyer, ["scanned", "scanned", "digital"]);
+    const [peca] = await documentMap(lawyer, caseFileId);
+
+    expect(await events(lawyer, { caseFileId, summarize: peca!.id })).toEqual([{ type: "refused", reason: "not-readable" }]);
+    expect(model.calls).toEqual([]);
+    expect(uow.state.answering.questions).toEqual([]);
   });
 
   it(`answers a peça of ${PECA_CHAR_BUDGET} characters, and refuses a larger one as too large without calling the model`, async () => {
@@ -344,7 +356,7 @@ describe("Answering.ask about one peça", () => {
 });
 
 describe("Answering.ask for the summary of a peça", () => {
-  it("asks the model the summary preset over the peça's pages, streams cited paragraphs, and saves it as a peça question", async () => {
+  it("asks the model the summary prompt over the peça's pages, streams cited paragraphs, and saves it as a peça question", async () => {
     const model = scripted((sources) => [
       { text: "A autora, professora, pede indenização por danos morais contra o banco.\n", sourceIds: [sourceOn(sources, 1).id] },
       { text: "Ela diz que o banco inscreveu seu nome no cadastro de inadimplentes.", sourceIds: [sourceOn(sources, 2).id] },
@@ -355,11 +367,12 @@ describe("Answering.ask for the summary of a peça", () => {
 
     const answer = await events(lawyer, { caseFileId, summarize: peca!.id });
 
-    expect(model.calls[0]!.question).toBe(SUMMARY_QUESTION);
+    expect(model.calls[0]!.question).toBe(PECA_SUMMARY_PROMPT);
     expect(model.calls[0]!.sources.map((source) => source.title)).toEqual(["Página 1 (fls. 2)", "Página 2 (fls. 3)"]);
     expect(model.calls[0]!.cacheSources).toBe(true);
     expect(statements(answer).map((statement) => statement.citations.map((citation) => citation.page))).toEqual([[1], [2]]);
-    expect(uow.state.answering.questions).toEqual([expect.objectContaining({ scope: { kind: "peca", pecaId: peca!.id }, text: SUMMARY_QUESTION })]);
+    // The saved text is the one the lawyer sees, not the prompt.
+    expect(uow.state.answering.questions).toEqual([expect.objectContaining({ scope: { kind: "peca", pecaId: peca!.id }, text: "Resumo da peça" })]);
   });
 
   it("throws NotFound for another lawyer's case file", async () => {

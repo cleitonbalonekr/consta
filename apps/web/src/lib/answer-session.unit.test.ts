@@ -23,7 +23,7 @@ describe("answerStates", () => {
     const all = await states([
       { type: "statement", statement: statement("Primeira.") },
       { type: "statement", statement: statement("Segunda.") },
-      { type: "done", questionId: QuestionId("q-1"), dropped: 0 },
+      { type: "done", questionId: QuestionId("q-1"), dropped: 0, unreadPages: [] },
     ]);
 
     expect(all.map((state) => [state.state, state.statements.map((shown) => shown.text)])).toEqual([
@@ -31,6 +31,21 @@ describe("answerStates", () => {
       ["streaming", ["Primeira.", "Segunda."]],
       ["done", ["Primeira.", "Segunda."]],
     ]);
+  });
+
+  it("keeps the scanned pages of the peça that the answer could not read", async () => {
+    const all = await states([
+      { type: "statement", statement: statement("Primeira.") },
+      { type: "done", questionId: QuestionId("q-1"), dropped: 0, unreadPages: [{ first: 4, last: 5 }] },
+    ]);
+
+    expect(all.at(-1)).toMatchObject({ state: "done", unreadPages: [{ first: 4, last: 5 }] });
+  });
+
+  it("says that a peça of scanned pages can't be read", async () => {
+    const all = await states([{ type: "refused", reason: "not-readable" }]);
+
+    expect(all.at(-1)).toMatchObject({ state: "refused", message: expect.stringContaining("digitalizadas") });
   });
 
   it("shows why a question was refused", async () => {

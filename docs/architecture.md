@@ -149,7 +149,7 @@ export class Answering {
 
 export type QuestionInput =
   | { caseFileId: CaseFileId; scope: Scope; text: string }
-  | { caseFileId: CaseFileId; summarize: PecaId } // a peça question whose text is SUMMARY_QUESTION
+  | { caseFileId: CaseFileId; summarize: PecaId } // a peça question saved as PECA_SUMMARY_TEXT; the model is asked PECA_SUMMARY_PROMPT
   | { caseFileId: CaseFileId; quickAction: "timeline" | "people" | "amounts" };
 
 export type Scope = { kind: "whole-file" } | { kind: "peca"; pecaId: PecaId };

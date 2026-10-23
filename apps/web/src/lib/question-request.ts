@@ -11,7 +11,8 @@ const MAX_QUESTION_LENGTH = 2_000;
 export function parseQuestionRequest(caseFileId: CaseFileId, body: unknown): QuestionInput | null {
   if (!isRecord(body)) return null;
   if ("summarize" in body) {
-    return typeof body.summarize === "string" && body.summarize ? { caseFileId, summarize: PecaId(body.summarize) } : null;
+    const pecaId = parsePecaId(body.summarize);
+    return pecaId ? { caseFileId, summarize: pecaId } : null;
   }
   if ("quickAction" in body) {
     // includes() checks the value at runtime but doesn't narrow it, hence the casts.
@@ -27,8 +28,15 @@ export function parseQuestionRequest(caseFileId: CaseFileId, body: unknown): Que
 function parseScope(scope: unknown): Scope | null {
   if (!isRecord(scope)) return null;
   if (scope.kind === "whole-file") return { kind: "whole-file" };
-  if (scope.kind === "peca" && typeof scope.pecaId === "string" && scope.pecaId) return { kind: "peca", pecaId: PecaId(scope.pecaId) };
-  return null;
+  const pecaId = scope.kind === "peca" ? parsePecaId(scope.pecaId) : null;
+  return pecaId ? { kind: "peca", pecaId } : null;
+}
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** A peça id is a UUID; anything else would fail in Postgres instead of being not found. */
+function parsePecaId(value: unknown): PecaId | null {
+  return typeof value === "string" && UUID.test(value) ? PecaId(value) : null;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

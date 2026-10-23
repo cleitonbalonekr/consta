@@ -1,6 +1,8 @@
 import type { Metering } from "../metering";
 import type { CitingModel, Embedder, Reranker, Source, UnitOfWork } from "../ports";
-import { NotFound, NotImplemented, QuestionId } from "../shared";
+import { NotFound, NotImplemented, PageRange, QuestionId } from "../shared";
+import type { UnreadPages } from "../case-files";
+import type { Block } from "../ingestion";
 import type { Box, CaseFileId, CaseFileStatus, LawyerId, PageSource, PecaId, QuickAction } from "../shared";
 import { RankFusion } from "./rank-fusion";
 import { StatementBuilder } from "./statements";
@@ -13,12 +15,12 @@ export type RankedPassages = { byVector: FoundPassage[]; byText: FoundPassage[] 
 
 export type Scope = { kind: "whole-file" } | { kind: "peca"; pecaId: PecaId };
 
-/** A question in one scope. A peça summary becomes one, with SUMMARY_QUESTION as its text. */
+/** A question in one scope. A peça summary becomes one, with PECA_SUMMARY_TEXT as its text. */
 export type ScopedQuestion = { caseFileId: CaseFileId; scope: Scope; text: string };
 
 export type QuestionInput =
   | ScopedQuestion
-  /** The summary of one peça: a question about the peça whose text is SUMMARY_QUESTION. */
+  /** The summary of one peça: a question about the peça whose text is PECA_SUMMARY_TEXT; the model is asked PECA_SUMMARY_PROMPT. */
   | { caseFileId: CaseFileId; summarize: PecaId }
   | { caseFileId: CaseFileId; quickAction: QuickAction };
 
@@ -36,12 +38,22 @@ export type Statement = { text: string; citations: [Citation, ...Citation[]] };
 export type AnswerEvent =
   | { type: "statement"; statement: Statement }
   /** `declined`: the model declined part way; the statements before it are partial, and the lawyer is shown none. */
-  | { type: "refused"; reason: "not-ready" | "scope-too-large" | "declined" }
-  /** `dropped` counts the statements removed because they had no citation. */
-  | { type: "done"; questionId: QuestionId; dropped: number };
+  | { type: "refused"; reason: Refusal | "declined" }
+  /**
+   * `dropped` counts the statements removed because they had no citation. `unreadPages` names the
+   * scanned pages of a peça that the answer could not read (ADR-0010); it is empty for a whole-file
+   * question, whose unread pages the case file shows.
+   */
+  | { type: "done"; questionId: QuestionId; dropped: number; unreadPages: UnreadPages };
 
-/** One page of a peça, as a question about the peça reads it. A scanned page has no text (ADR-0010). */
-export type PecaPage = { page: number; folha: string | null; source: PageSource; text: string; boxes: Box[] };
+/**
+ * Why a question is refused before the model is called: the case file is not ready, the peça
+ * is over PECA_CHAR_BUDGET, or every page of the peça is scanned.
+ */
+export type Refusal = "not-ready" | "scope-too-large" | "not-readable";
+
+/** One page of a peça, as a question about the peça reads it. A scanned page has no blocks (ADR-0010). */
+export type PecaPage = { page: number; folha: string | null; source: PageSource; blocks: Block[] };
 
 /** A question and its answer, as the Answering repository stores it. Ticket 11 adds the quick actions. */
 export type QuestionRecord = {
@@ -66,10 +78,12 @@ export interface AnsweringRepository {
    */
   search(caseFileId: CaseFileId, query: { text: string; embedding: number[] }, depth: number): Promise<RankedPassages>;
   /**
-   * The pages of the peça's page range, in page order, each with the boxes of all its blocks.
-   * Null when the case file has no such peça.
+   * The characters of text on the pages of the peça's page range, so Answering can refuse a
+   * peça too large to read before it loads the pages. Null when the case file has no such peça.
    */
-  pecaPages(caseFileId: CaseFileId, pecaId: PecaId): Promise<PecaPage[] | null>;
+  pecaSize(caseFileId: CaseFileId, pecaId: PecaId): Promise<{ chars: number } | null>;
+  /** The pages of the peça's page range, in page order. Empty when the case file has no such peça. */
+  pecaPages(caseFileId: CaseFileId, pecaId: PecaId): Promise<PecaPage[]>;
   saveQuestion(question: QuestionRecord): Promise<void>;
 }
 
@@ -93,8 +107,11 @@ export const PASSAGES_FOR_MODEL = 20;
  */
 export const PECA_CHAR_BUDGET = 450_000;
 
-/** The text of a peça summary's question (prd-mvp.md, F8). It is saved as the question's text. */
-export const SUMMARY_QUESTION =
+/** The text of a peça summary as the lawyer sees it, and as the question is saved. */
+export const PECA_SUMMARY_TEXT = "Resumo da peça";
+
+/** What the model is asked for a peça summary (prd-mvp.md, F8). */
+export const PECA_SUMMARY_PROMPT =
   "Resuma esta peça em poucos parágrafos curtos: quem a apresenta, o que pede ou decide, os fundamentos e as conclusões. Escreva cada parágrafo em uma única linha.";
 
 const ANSWER_FORM = [
@@ -115,8 +132,14 @@ const PECA_INSTRUCTIONS = [
   ...ANSWER_FORM,
 ].join("\n");
 
-/** What the model reads for a question: the passages, the instructions that describe them, and whether to cache them. */
-type Reading = { instructions: string; passages: FoundPassage[]; cacheSources: boolean };
+/**
+ * What the model reads for a question: the passages, the instructions that describe them, and
+ * whether to cache them. `prompt` is what the model is asked: the lawyer's text, or a preset's.
+ */
+type Reading = { instructions: string; passages: FoundPassage[]; cacheSources: boolean; prompt: string; unreadPages: UnreadPages };
+
+/** A question checked and ready to answer: what it is, what the model is asked, and the peça pages it reads, if any. */
+type Prepared = { question: ScopedQuestion; prompt: string; pages: PecaPage[] | null };
 
 /**
  * Answers a lawyer's question about one case file. Statements stream one at a time,
@@ -138,34 +161,69 @@ export class Answering {
   }
 
   /**
-   * Yields `refused: "not-ready"` for a case file that is not ready, and `refused:
-   * "scope-too-large"` for a peça over PECA_CHAR_BUDGET. Otherwise yields each cited statement
-   * as soon as its line ends, saves the question, and yields `done` last. When the model
-   * declines part way, yields `refused: "declined"` last and saves nothing. Throws NotFound
-   * if the lawyer doesn't own the case file, or the case file has no such peça. Ticket 11
-   * adds the quick actions; until then they throw NotImplemented.
+   * Yields `refused` with the Refusal when the question can't be answered: a case file that is
+   * not ready, a peça over PECA_CHAR_BUDGET, or a peça with only scanned pages. Otherwise yields
+   * each cited statement as soon as its line ends, saves the question, and yields `done` last.
+   * When the model declines part way, yields `refused: "declined"` last and saves nothing. Throws
+   * NotFound if the lawyer doesn't own the case file, or the case file has no such peça. Ticket
+   * 11 adds the quick actions; until then they throw NotImplemented.
    */
   async *ask(lawyer: LawyerId, input: QuestionInput): AsyncIterable<AnswerEvent> {
+    // One run, so the peça is read from the case file whose owner was just checked.
+    const prepared = await this.uow.run((repos) => this.prepare(repos.answering, lawyer, input));
+    if (typeof prepared === "string") {
+      yield { type: "refused", reason: prepared };
+      return;
+    }
+    const { question, prompt, pages } = prepared;
+    const reading = pages
+      ? this.pecaReading(pages, prompt)
+      : { instructions: WHOLE_FILE_INSTRUCTIONS, passages: await this.search(lawyer, question.caseFileId, prompt), cacheSources: false, prompt, unreadPages: [] };
+    yield* this.answer(lawyer, question, reading);
+  }
+
+  /** Checks the question, and reads the peça's pages when it is about one peça. */
+  private async prepare(repo: AnsweringRepository, lawyer: LawyerId, input: QuestionInput): Promise<Prepared | Refusal> {
     const { caseFileId } = input;
-    const status = await this.uow.run((repos) => repos.answering.caseFileStatus(lawyer, caseFileId));
+    const status = await repo.caseFileStatus(lawyer, caseFileId);
     // Ownership first, so another lawyer's case file is NotFound whatever the scope.
     if (status === null) throw new NotFound(`Case file ${caseFileId} not found.`);
     if ("quickAction" in input) throw new NotImplemented("Answering.ask for a quick action");
-    if (status !== "ready") {
-      yield { type: "refused", reason: "not-ready" };
-      return;
-    }
+    if (status !== "ready") return "not-ready";
 
-    const { scope, text } = "summarize" in input ? { scope: { kind: "peca", pecaId: input.summarize } as const, text: SUMMARY_QUESTION } : input;
-    const reading =
-      scope.kind === "peca"
-        ? await this.readPeca(caseFileId, scope.pecaId)
-        : { instructions: WHOLE_FILE_INSTRUCTIONS, passages: await this.search(lawyer, caseFileId, text), cacheSources: false };
-    if (reading === "scope-too-large") {
-      yield { type: "refused", reason: "scope-too-large" };
-      return;
-    }
-    yield* this.answer(lawyer, { caseFileId, scope, text }, reading);
+    const summary = "summarize" in input;
+    const question: ScopedQuestion = summary ? { caseFileId, scope: { kind: "peca", pecaId: input.summarize }, text: PECA_SUMMARY_TEXT } : input;
+    const prompt = summary ? PECA_SUMMARY_PROMPT : input.text;
+    if (question.scope.kind === "whole-file") return { question, prompt, pages: null };
+    const pages = await this.pecaPages(repo, caseFileId, question.scope.pecaId);
+    return typeof pages === "string" ? pages : { question, prompt, pages };
+  }
+
+  /**
+   * The pages of the peça's page range. The size comes first, so a peça over the budget is never
+   * loaded. Throws NotFound when the case file has no such peça.
+   */
+  private async pecaPages(repo: AnsweringRepository, caseFileId: CaseFileId, pecaId: PecaId): Promise<PecaPage[] | Refusal> {
+    const size = await repo.pecaSize(caseFileId, pecaId);
+    if (size === null) throw new NotFound(`Peça ${pecaId} not found.`);
+    if (size.chars > PECA_CHAR_BUDGET) return "scope-too-large";
+    const pages = await repo.pecaPages(caseFileId, pecaId);
+    // A scanned page is not read, so no statement can cite it (ADR-0010).
+    return pages.some((page) => page.source === "digital") ? pages : "not-readable";
+  }
+
+  /** The digital pages of the peça, one passage per page, cached for follow-up questions. */
+  private pecaReading(pages: PecaPage[], prompt: string): Reading {
+    const digital = pages.filter((page) => page.source === "digital");
+    const passages = digital.map(({ page, folha, blocks }) => ({
+      id: `page-${page}`,
+      page,
+      folha,
+      text: blocks.map((block) => block.text).join("\n"),
+      boxes: blocks.map((block) => block.box),
+    }));
+    const unreadPages = PageRange.group(pages.filter((page) => page.source === "scanned").map((page) => page.page));
+    return { instructions: PECA_INSTRUCTIONS, passages, cacheSources: true, prompt, unreadPages };
   }
 
   /** Streams the statements of the answer, then saves the question. */
@@ -173,7 +231,7 @@ export class Answering {
     const { caseFileId, scope, text } = question;
     const builder = new StatementBuilder(new Map(reading.passages.map((passage) => [passage.id, passage])));
     const answer: Statement[] = [];
-    for await (const statement of this.statements(lawyer, caseFileId, text, reading, builder)) {
+    for await (const statement of this.statements(lawyer, caseFileId, reading, builder)) {
       if (statement === "declined") {
         yield { type: "refused", reason: "declined" };
         return;
@@ -184,22 +242,7 @@ export class Answering {
 
     const id = QuestionId(crypto.randomUUID());
     await this.uow.run((repos) => repos.answering.saveQuestion({ id, caseFileId, lawyer, scope, text, answer, dropped: builder.dropped }));
-    yield { type: "done", questionId: id, dropped: builder.dropped };
-  }
-
-  /**
-   * The full page range of the peça, one passage per page, cached for follow-up questions.
-   * Throws NotFound when the case file has no such peça.
-   */
-  private async readPeca(caseFileId: CaseFileId, pecaId: PecaId): Promise<Reading | "scope-too-large"> {
-    const pages = await this.uow.run((repos) => repos.answering.pecaPages(caseFileId, pecaId));
-    if (pages === null) throw new NotFound(`Peça ${pecaId} not found.`);
-    // A scanned page is not read, so no statement can cite it (ADR-0010).
-    const readable = pages.filter((page) => page.source === "digital");
-    const chars = readable.reduce((total, page) => total + page.text.length, 0);
-    if (chars > PECA_CHAR_BUDGET) return "scope-too-large";
-    const passages = readable.map(({ page, folha, text, boxes }) => ({ id: `page-${page}`, page, folha, text, boxes }));
-    return { instructions: PECA_INSTRUCTIONS, passages, cacheSources: true };
+    yield { type: "done", questionId: id, dropped: builder.dropped, unreadPages: reading.unreadPages };
   }
 
   /** Embeds the question, runs the hybrid search, and keeps the passages the reranker puts first. */
@@ -224,8 +267,8 @@ export class Answering {
    * With no passage to read, the model is not called: it could cite nothing. Ends with
    * "declined" when the model declines; the line it was writing is not finished.
    */
-  private async *statements(lawyer: LawyerId, caseFileId: CaseFileId, question: string, reading: Reading, builder: StatementBuilder): AsyncIterable<Statement | "declined"> {
-    const { instructions, passages, cacheSources } = reading;
+  private async *statements(lawyer: LawyerId, caseFileId: CaseFileId, reading: Reading, builder: StatementBuilder): AsyncIterable<Statement | "declined"> {
+    const { instructions, passages, cacheSources, prompt: question } = reading;
     if (passages.length === 0) return;
     const sources = passages.map((passage) => this.source(passage));
     for await (const event of this.model.answer({ instructions, sources, question, cacheSources })) {

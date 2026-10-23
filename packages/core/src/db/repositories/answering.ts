@@ -77,18 +77,25 @@ export class DrizzleAnsweringRepository implements AnsweringRepository {
     return { byVector: found("vector"), byText: found("text") };
   }
 
-  async pecaPages(caseFileId: CaseFileId, pecaId: PecaId): Promise<PecaPage[] | null> {
-    const [range] = await this.db
-      .select({ firstPage: peca.firstPage, lastPage: peca.lastPage })
+  async pecaSize(caseFileId: CaseFileId, pecaId: PecaId) {
+    // A left join, so a peça with no stored pages still has a size, of zero.
+    const [row] = await this.db
+      .select({ chars: sql<number>`coalesce(sum(length(${page.text})), 0)::int` })
       .from(peca)
-      .where(and(eq(peca.id, pecaId), eq(peca.caseFileId, caseFileId)));
-    if (!range) return null;
+      .leftJoin(page, and(eq(page.caseFileId, peca.caseFileId), between(page.number, peca.firstPage, peca.lastPage)))
+      .where(and(eq(peca.id, pecaId), eq(peca.caseFileId, caseFileId)))
+      .groupBy(peca.id);
+    return row ?? null;
+  }
+
+  async pecaPages(caseFileId: CaseFileId, pecaId: PecaId): Promise<PecaPage[]> {
     const rows = await this.db
-      .select({ number: page.number, folha: page.folha, source: page.source, text: page.text, blocks: page.blocks })
-      .from(page)
-      .where(and(eq(page.caseFileId, caseFileId), between(page.number, range.firstPage, range.lastPage)))
+      .select({ page: page.number, folha: page.folha, source: page.source, blocks: page.blocks })
+      .from(peca)
+      .innerJoin(page, and(eq(page.caseFileId, peca.caseFileId), between(page.number, peca.firstPage, peca.lastPage)))
+      .where(and(eq(peca.id, pecaId), eq(peca.caseFileId, caseFileId)))
       .orderBy(asc(page.number));
-    return rows.map(({ number, blocks, ...row }) => ({ ...row, page: number, boxes: blocks.map((block) => block.box) }));
+    return rows;
   }
 
   async saveQuestion({ id, caseFileId, lawyer, scope, text, answer, dropped }: QuestionRecord) {

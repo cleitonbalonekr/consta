@@ -1,6 +1,6 @@
 "use client";
 
-import type { Citation, Folhas, PecaView, QuickAction } from "@consta/core";
+import type { Citation, Folhas, PecaView, QuickAction, UnreadPages } from "@consta/core";
 import { ArrowUp, Banknote, CalendarClock, FileText, LoaderCircle, ShieldCheck, Sparkles, TriangleAlert, Users } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { answerStates, failAnswer, startAnswer } from "@/lib/answer-session";
@@ -9,6 +9,7 @@ import type { QuestionRequest } from "@/lib/question-request";
 import { Answer } from "./answer";
 import { DocumentMap, pageRange } from "./document-map";
 import { PdfViewer } from "./pdf-viewer";
+import { unreadPagesLabel } from "./unread-pages";
 import type { ViewerTarget } from "./pdf-viewer";
 
 const QUICK_ACTIONS: Array<{ action: QuickAction; label: string; icon: typeof Users }> = [
@@ -16,6 +17,9 @@ const QUICK_ACTIONS: Array<{ action: QuickAction; label: string; icon: typeof Us
   { action: "people", label: "Pessoas", icon: Users },
   { action: "amounts", label: "Valores", icon: Banknote },
 ];
+
+// The same text as Answering's PECA_SUMMARY_TEXT, which saves it; importing it would bring server code into the browser.
+const PECA_SUMMARY_TEXT = "Resumo da peça";
 
 const SUGGESTIONS = ["Do que trata esta ação?", "O que a sentença decidiu?", "Quais provas foram produzidas?"];
 
@@ -106,7 +110,7 @@ export function CaseFileWorkspace({ caseFileId, documentMap, folhas, pdfUrl }: C
                     id="summarize-peca"
                     type="button"
                     disabled={answer?.state === "streaming"}
-                    onClick={() => void ask("Resumo da peça", scopeLabel, { summarize: selectedPeca.id })}
+                    onClick={() => void ask(PECA_SUMMARY_TEXT, scopeLabel, { summarize: selectedPeca.id })}
                     className="inline-flex items-center gap-1.5 rounded-full border border-accent/40 bg-accent-soft px-3 py-1.5 text-xs font-medium text-accent-text transition-colors hover:border-accent hover:bg-accent hover:text-accent-foreground disabled:opacity-50"
                   >
                     <FileText className="size-3.5" aria-hidden />
@@ -221,6 +225,7 @@ function Conversation({ answer, openCitation, onOpenCitation }: ConversationProp
               {answer.statements.length === 1 ? "1 afirmação" : `${answer.statements.length} afirmações`}, cada uma com a página que a sustenta.
             </p>
           )}
+          {answer.state === "done" && answer.unreadPages && answer.unreadPages.length > 0 && <UnreadPagesNote ranges={answer.unreadPages} />}
           {(answer.state === "refused" || answer.state === "error") && (
             <p id="answer-error" role="alert" className="flex items-start gap-2 text-sm text-danger">
               <TriangleAlert className="mt-0.5 size-4 shrink-0" aria-hidden />
@@ -230,6 +235,16 @@ function Conversation({ answer, openCitation, onOpenCitation }: ConversationProp
         </div>
       </section>
     </div>
+  );
+}
+
+/** Names the scanned pages of the peça that the answer did not read, so a lawyer knows what it may have missed. */
+function UnreadPagesNote({ ranges }: { ranges: UnreadPages }) {
+  return (
+    <p id="answer-unread-pages" className="mt-3 flex items-start gap-1.5 text-xs text-warning">
+      <TriangleAlert className="mt-0.5 size-3.5 shrink-0" aria-hidden />
+      Esta resposta não leu as páginas digitalizadas desta peça: {unreadPagesLabel(ranges)}.
+    </p>
   );
 }
 

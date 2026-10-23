@@ -144,7 +144,23 @@ export function answeringRepositoryContract(setup: AnsweringRepositorySetup) {
       expect(await questions(caseFileId)).toEqual([{ text: "Resuma.", scope: "peca", pecaId: peca!.id, answer: [], dropped: 0 }]);
     });
 
-    it("reads the pages of a peça in order, each with its folha, source, text and the boxes of all its blocks", async () => {
+    it("measures a peça by the characters of its pages' text, and gives null for a missing peça or another case file's", async () => {
+      const mine = await withPassages();
+      await mine.uow.run((repos) => repos.ingestion.replaceDocumentMap(mine.caseFileId, [pecaOn(1, 1), pecaOn(2, 3)], []));
+      const [, peca] = await mine.uow.run((repos) => repos.caseFiles.documentMapOf(mine.caseFileId));
+      const other = await withCaseFile(mine);
+      await other.uow.run((repos) => repos.ingestion.savePages(other.caseFileId, [pageWith(1, LAUDO)], [passageOn(1, LAUDO, vector(0, 1))]));
+      await other.uow.run((repos) => repos.ingestion.replaceDocumentMap(other.caseFileId, [pecaOn(1, 1)], []));
+      const [othersPeca] = await other.uow.run((repos) => repos.caseFiles.documentMapOf(other.caseFileId));
+
+      const size = await mine.uow.run((repos) => repos.answering.pecaSize(mine.caseFileId, peca!.id));
+
+      expect(size).toEqual({ chars: pageWith(2, LAUDO).text.length + pageWith(3, PROCURACAO).text.length });
+      expect(await mine.uow.run((repos) => repos.answering.pecaSize(mine.caseFileId, othersPeca!.id))).toBeNull();
+      expect(await mine.uow.run((repos) => repos.answering.pecaSize(mine.caseFileId, PecaId(crypto.randomUUID())))).toBeNull();
+    });
+
+    it("reads the pages of a peça in order, each with its folha, source and blocks", async () => {
       const { uow, caseFileId } = await withPassages();
       await uow.run((repos) => repos.ingestion.replaceDocumentMap(caseFileId, [pecaOn(1, 1), pecaOn(2, 3)], []));
       const [, peca] = await uow.run((repos) => repos.caseFiles.documentMapOf(caseFileId));
@@ -152,20 +168,20 @@ export function answeringRepositoryContract(setup: AnsweringRepositorySetup) {
       const pages = await uow.run((repos) => repos.answering.pecaPages(caseFileId, peca!.id));
 
       expect(pages).toEqual([
-        { page: 2, folha: "3", source: "digital", text: pageWith(2, LAUDO).text, boxes: [box(1), box(2), box(3)] },
-        { page: 3, folha: "4", source: "digital", text: pageWith(3, PROCURACAO).text, boxes: [box(1), box(2), box(3)] },
+        { page: 2, folha: "3", source: "digital", blocks: pageWith(2, LAUDO).blocks },
+        { page: 3, folha: "4", source: "digital", blocks: pageWith(3, PROCURACAO).blocks },
       ]);
     });
 
-    it("reads no pages, but null, for a missing peça or another case file's peça", async () => {
+    it("reads no pages for a missing peça or another case file's peça", async () => {
       const mine = await withPassages();
       const other = await withCaseFile(mine);
       await other.uow.run((repos) => repos.ingestion.savePages(other.caseFileId, [pageWith(1, LAUDO)], [passageOn(1, LAUDO, vector(0, 1))]));
       await other.uow.run((repos) => repos.ingestion.replaceDocumentMap(other.caseFileId, [pecaOn(1, 1)], []));
       const [othersPeca] = await other.uow.run((repos) => repos.caseFiles.documentMapOf(other.caseFileId));
 
-      expect(await mine.uow.run((repos) => repos.answering.pecaPages(mine.caseFileId, othersPeca!.id))).toBeNull();
-      expect(await mine.uow.run((repos) => repos.answering.pecaPages(mine.caseFileId, PecaId(crypto.randomUUID())))).toBeNull();
+      expect(await mine.uow.run((repos) => repos.answering.pecaPages(mine.caseFileId, othersPeca!.id))).toEqual([]);
+      expect(await mine.uow.run((repos) => repos.answering.pecaPages(mine.caseFileId, PecaId(crypto.randomUUID())))).toEqual([]);
     });
   });
 }

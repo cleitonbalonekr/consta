@@ -26,7 +26,7 @@ Decisions:
 - **A citation of a peça page quotes the whole page and marks all its blocks**, because the source is the whole page. Narrower quotes need block-level citations from the `CitingModel` port, which is a later change.
 - **The budget counts characters, not tokens**: `PECA_CHAR_BUDGET` is 450,000 characters, about 150,000 tokens at the three characters a token that Ingestion's map windows use. No token-count call is made before the answer. Very dense text can go above 150,000 tokens and still pass.
 - **Scanned pages are left out** of a peça question (ADR-0010), and they do not count against the budget. A peça with only scanned pages gets an empty answer and no model call, as a whole-file question with no passages does.
-- **The summary is its own `QuestionInput` variant** (`{ caseFileId, summarize: pecaId }`). The server holds the text (`SUMMARY_QUESTION`, saved as the question's text), and the instructions are the same as for every peça question, so a summary and the follow-up questions share the cached prefix. The web app shows a "Resumir esta peça" button when a peça is selected.
+- **The summary is its own `QuestionInput` variant** (`{ caseFileId, summarize: pecaId }`). The server holds the text (`PECA_SUMMARY_PROMPT`, saved as the question's text), and the instructions are the same as for every peça question, so a summary and the follow-up questions share the cached prefix. The web app shows a "Resumir esta peça" button when a peça is selected.
 - **The `scope-too-large` message** now tells the lawyer to choose a smaller peça or to ask about the whole case file, because the app has no page-range picker.
 - **`CONTEXT.md` has a new term, Peça summary**, so that it is not mixed up with the short summary of each peça in the document map.
 
