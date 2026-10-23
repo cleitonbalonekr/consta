@@ -1,5 +1,8 @@
-import type { FactKind, PecaType } from "../shared";
+import type { FactKind, PageSource, PecaType } from "../shared";
 import type { Metered } from "./usage";
+
+/** One page of a window: its text, empty for a scanned page, which the MVP does not read (ADR-0010). */
+export type PageText = { page: number; text: string; source: PageSource };
 
 export type PecaDraft = {
   type: PecaType;
@@ -25,7 +28,7 @@ export type FactDraft = {
  */
 export interface MapExtractor {
   extract(input: {
-    pages: { page: number; text: string }[];
+    pages: PageText[];
     /** The last peça of the previous window, so a peça that continues can be extended. */
     openPeca: PecaDraft | null;
   }): Promise<Metered<{ pecas: PecaDraft[]; facts: FactDraft[] }>>;

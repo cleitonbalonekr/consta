@@ -60,6 +60,8 @@ export interface CaseFileRepository {
   listOf(lawyer: LawyerId): Promise<CaseFile[]>;
   /** The folhas ingestion found on the case file's pages. */
   folhasOf(id: CaseFileId): Promise<Folhas>;
+  /** The peças ingestion found, in page order. */
+  documentMapOf(id: CaseFileId): Promise<PecaView[]>;
   /** Inserts a new case file or updates the stored one. */
   save(caseFile: CaseFile): Promise<void>;
 }
@@ -149,8 +151,10 @@ export class CaseFiles {
   async view(lawyer: LawyerId, caseFileId: CaseFileId): Promise<CaseFileView> {
     return this.uow.run(async (repos) => {
       const caseFile = await this.owned(lawyer, caseFileId);
-      const folhas = caseFile.status === "ready" ? await repos.caseFiles.folhasOf(caseFileId) : {};
-      return toView(caseFile, folhas);
+      if (caseFile.status !== "ready") return toView(caseFile, { documentMap: [], folhas: {} });
+      const documentMap = await repos.caseFiles.documentMapOf(caseFileId);
+      const folhas = await repos.caseFiles.folhasOf(caseFileId);
+      return toView(caseFile, { documentMap, folhas });
     });
   }
 
@@ -199,8 +203,7 @@ function toSummary(caseFile: CaseFile): CaseFileSummary {
   return { id, name, status, ingesting: caseFile.ingesting, pageCount, pagesDone, createdAt };
 }
 
-/** The document map arrives with ticket 09; until then it is empty. */
-function toView(caseFile: CaseFile, folhas: Folhas): CaseFileView {
+function toView(caseFile: CaseFile, derived: Pick<CaseFileView, "documentMap" | "folhas">): CaseFileView {
   const { error, unreadPages } = caseFile.snapshot();
-  return { ...toSummary(caseFile), error, unreadPages, documentMap: [], folhas };
+  return { ...toSummary(caseFile), error, unreadPages, ...derived };
 }

@@ -107,11 +107,11 @@ export interface RangeRunner {
 
 /** Every method can run again on the same case file. */
 export class Ingestion {
-  // Ticket 09 adds the MapExtractor, ticket 13 the Mailer.
-  constructor(deps: { uow: UnitOfWork; files: FileStore; embedder: Embedder; metering: Metering }); // builds its own CaseFileLifecycle
+  // Ticket 13 adds the Mailer.
+  constructor(deps: { uow: UnitOfWork; files: FileStore; embedder: Embedder; mapExtractor: MapExtractor; metering: Metering }); // builds its own CaseFileLifecycle
   /**
-   * Plans, has `ranges` run the ranges (in-process by default), and marks the case file ready with
-   * its unread scanned pages. Unread ranges fail it with a reason naming their pages; any other
+   * Plans, has `ranges` run the ranges (in-process by default), builds the document map and facts
+   * from windows of pages, and marks the case file ready with its unread scanned pages. Unread ranges fail it with a reason naming their pages; any other
    * failure fails it with a general reason and is rethrown. Failing gives the pages back to the quota.
    */
   ingest(caseFileId: CaseFileId, ranges?: RangeRunner): Promise<void>;
@@ -208,7 +208,7 @@ Each port is a real seam: it has a production adapter and an in-memory fake used
 | `Embedder` | Embeds passages and questions | Voyage | Deterministic hash vectors |
 | `Reranker` | Orders passages for a question | Voyage | Keeps the input order |
 | `CitingModel` | Answers from source blocks, returning text with the ids of the sources it cites | Claude Sonnet with native citations | Scripted answers, including uncited ones |
-| `MapExtractor` | Reads a window of pages and returns peças and facts | Claude Haiku | Scripted peças and facts |
+| `MapExtractor` | Reads a window of pages and returns peças and facts | Claude Haiku 5.5, one Messages call per window with structured output | Scripted peças and facts |
 | `Jobs` | Starts ingestion of a case file | Trigger.dev, with the case file id as the idempotency key, in both adapter modes (ADR-0009) | Inline: runs `Ingestion.ingest` in-process and returns at once (the E2E server, `CONSTA_JOBS=inline`). Recording: records the request only (tests that run the steps themselves) |
 | `Mailer` | Sends a templated email | Resend | In-memory outbox |
 | Repositories (one per module) | Read and write the module's tables, including hybrid search | Drizzle on Postgres | In-memory tables |

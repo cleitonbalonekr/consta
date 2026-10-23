@@ -14,6 +14,31 @@ export class PageRange {
     }
     return new PageRange(first, last);
   }
+
+  contains(page: number): boolean {
+    return page >= this.first && page <= this.last;
+  }
+}
+
+/** A day of the calendar as YYYY-MM-DD, the form the date columns store. */
+export class CalendarDate {
+  private static readonly FORM = /^(\d{4})-(\d{2})-(\d{2})$/;
+
+  private constructor(readonly iso: string) {}
+
+  /**
+   * Null unless `text` is YYYY-MM-DD and names a real day. A model writes 2026-02-30, or a 00
+   * day or month when it doesn't know them; such a date would fail the whole insert.
+   */
+  static parse(text: string): CalendarDate | null {
+    const match = CalendarDate.FORM.exec(text);
+    if (!match) return null;
+    // FORM has three groups, so the match has three numbers after the whole text.
+    const [year, month, day] = match.slice(1).map(Number) as [number, number, number];
+    const date = new Date(Date.UTC(year, month - 1, day));
+    const real = date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day;
+    return real ? new CalendarDate(text) : null;
+  }
 }
 
 /** A rectangle on a page, in fractions of the page width and height (0 to 1, origin top-left). */

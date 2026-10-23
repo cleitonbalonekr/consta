@@ -2,7 +2,7 @@ import { and, eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import { DrizzleUnitOfWork, schema } from "../db";
 import { createTestDb, insertLawyer } from "../db/testing";
-import { FakeEmbedder } from "../ports/fakes";
+import { FakeEmbedder, FakeMapExtractor } from "../ports/fakes";
 import type { CaseFileId } from "../shared";
 import { PAGES_PER_BATCH } from "./index";
 import { fixturePdf, ingestionOn, LEFT_COLUMN, RIGHT_COLUMN } from "./testing";
@@ -43,7 +43,40 @@ describe("Ingestion on Postgres", () => {
     ]);
     expect((await passagesOf(caseFileId)).map((passage) => passage.page)).toEqual([1, 2]);
     const usage = await db.select().from(schema.usageEvent).where(eq(schema.usageEvent.caseFileId, caseFileId));
-    expect(usage).toEqual([expect.objectContaining({ lawyerId: lawyer, kind: "embed", model: "fake-embedder" })]);
+    expect(usage).toHaveLength(2);
+    expect(usage).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ lawyerId: lawyer, kind: "embed", model: "fake-embedder" }),
+        expect.objectContaining({ lawyerId: lawyer, kind: "extract", model: "fake-map-extractor" }),
+      ]),
+    );
+  });
+
+  it("builds the document map and facts with the fake extractor, and the lawyer sees the map", async () => {
+    const mapExtractor = new FakeMapExtractor(({ pages }) => ({
+      pecas: [
+        { type: "peticao-inicial", title: "Petição inicial", date: "2026-03-10", firstPage: 1, lastPage: 1, summary: "Pede indenização." },
+        { type: "sentenca", title: "Sentença", date: null, firstPage: 2, lastPage: pages.at(-1)!.page, summary: "Julga procedente." },
+      ],
+      facts: [{ kind: "person", value: "Maria Aparecida Souza", normalizedValue: null, context: "autora", page: 1 }],
+    }));
+    const { caseFiles, db, lawyer, ingest } = await setup({ mapExtractor });
+
+    const caseFileId = await ingest(["digital", "digital", "scanned"]);
+
+    const view = await caseFiles.view(lawyer, caseFileId);
+    expect(view.status).toBe("ready");
+    expect(view.documentMap.map(({ type, date, firstPage, lastPage }) => ({ type, date, firstPage, lastPage }))).toEqual([
+      { type: "peticao-inicial", date: "2026-03-10", firstPage: 1, lastPage: 1 },
+      { type: "sentenca", date: null, firstPage: 2, lastPage: 3 },
+    ]);
+    const facts = await db.select({ value: schema.fact.value, page: schema.fact.page }).from(schema.fact).where(eq(schema.fact.caseFileId, caseFileId));
+    expect(facts).toEqual([{ value: "Maria Aparecida Souza", page: 1 }]);
+    const extracts = await db
+      .select()
+      .from(schema.usageEvent)
+      .where(and(eq(schema.usageEvent.caseFileId, caseFileId), eq(schema.usageEvent.kind, "extract")));
+    expect(extracts).toHaveLength(1);
   });
 
   it("reads a two-column fixture one column after the other", async () => {

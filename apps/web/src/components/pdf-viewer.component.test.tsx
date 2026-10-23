@@ -1,4 +1,5 @@
-import type { Citation } from "@consta/core";
+import { PecaId } from "@consta/core";
+import type { Citation, PecaView } from "@consta/core";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -41,7 +42,7 @@ const citation: Citation = {
 const folhas = { 1: "40", 2: "41" };
 
 function renderViewer() {
-  return render(<PdfViewer pdfUrl="https://files.example/autos.pdf" folhas={folhas} citation={citation} onClose={() => {}} />);
+  return render(<PdfViewer pdfUrl="https://files.example/autos.pdf" folhas={folhas} target={{ citation }} onClose={() => {}} />);
 }
 
 /** The page; the tests wait for it, since it appears once the PDF opens. */
@@ -144,5 +145,23 @@ describe("PdfViewer", () => {
 
     await waitFor(() => expect(viewerPage().dataset.renderedPage).toBe("2"));
     expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("opens a peça at its first page, with its type and title and no mark", async () => {
+    const peca: PecaView = {
+      id: PecaId("peca-1"),
+      type: "contestacao",
+      title: "Contestação do Banco Exemplo",
+      date: "2026-04-01",
+      firstPage: 3,
+      lastPage: 3,
+      summary: "O réu nega a dívida.",
+    };
+    render(<PdfViewer pdfUrl="https://files.example/autos.pdf" folhas={folhas} target={{ peca }} onClose={() => {}} />);
+
+    await waitFor(() => expect(viewerPage().dataset.renderedPage).toBe("3"));
+    expect(document.getElementById("viewer-peca")!.textContent).toBe("Contestação · p. 3Contestação do Banco Exemplo");
+    expect(document.getElementById("viewer-quote")).toBeNull();
+    expect(await marks()).toEqual([]);
   });
 });

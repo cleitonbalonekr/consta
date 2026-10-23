@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { citingModelContract, embedderContract, fileStoreContract, rerankerContract } from "../contracts";
-import { FakeCitingModel, FakeEmbedder, FakeReranker, InMemoryFileStore, InMemoryMailer } from "./index";
+import { citingModelContract, embedderContract, fileStoreContract, mapExtractorContract, rerankerContract } from "../contracts";
+import { FakeCitingModel, FakeEmbedder, FakeMapExtractor, FakeReranker, InMemoryFileStore, InMemoryMailer } from "./index";
 
 describe("InMemoryFileStore", () => {
   fileStoreContract(async () => {
@@ -24,6 +24,22 @@ describe("FakeEmbedder", () => {
 
 describe("FakeReranker", () => {
   rerankerContract(async () => ({ reranker: new FakeReranker() }));
+});
+
+describe("FakeMapExtractor", () => {
+  mapExtractorContract(async () => ({ extractor: new FakeMapExtractor() }));
+
+  it("maps a window, by default, as peças of two pages, each of the next type in the order of a lawsuit", async () => {
+    const pages = [1, 2, 3, 4, 5].map((page) => ({ page, text: `Página ${page}`, source: "digital" as const }));
+
+    const { pecas } = await new FakeMapExtractor().extract({ pages, openPeca: null });
+
+    expect(pecas.map(({ type, title, firstPage, lastPage }) => ({ type, title, firstPage, lastPage }))).toEqual([
+      { type: "peticao-inicial", title: "Petição inicial", firstPage: 1, lastPage: 2 },
+      { type: "contestacao", title: "Contestação", firstPage: 3, lastPage: 4 },
+      { type: "sentenca", title: "Sentença", firstPage: 5, lastPage: 5 },
+    ]);
+  });
 });
 
 describe("FakeCitingModel", () => {
