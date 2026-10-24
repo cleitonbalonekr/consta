@@ -55,7 +55,8 @@ export class CalendarDate {
 /** A rectangle on a page, in fractions of the page width and height (0 to 1, origin top-left). */
 export type Box = { x0: number; y0: number; x1: number; y1: number };
 
-export type PageSource = "digital" | "scanned";
+export const pageSources = ["digital", "scanned"] as const;
+export type PageSource = (typeof pageSources)[number];
 
 export const caseFileStatuses = [
   "uploading",

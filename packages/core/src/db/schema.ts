@@ -19,7 +19,7 @@ import {
   uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
-import { caseFileStatuses, factKinds, pecaTypes, plans, quickActions, scopeKinds, usageKinds } from "../shared/values";
+import { caseFileStatuses, factKinds, pageSources, pecaTypes, plans, quickActions, scopeKinds, usageKinds } from "../shared/values";
 import type { Box } from "../shared/values";
 import type { Statement } from "../answering";
 
@@ -31,7 +31,7 @@ const tsvector = customType<{ data: string }>({ dataType: () => "tsvector" });
 const createdAt = () => timestamp("created_at", { withTimezone: true }).notNull().defaultNow();
 
 export const caseFileStatus = pgEnum("case_file_status", caseFileStatuses);
-export const pageSource = pgEnum("page_source", ["digital", "scanned"]);
+export const pageSource = pgEnum("page_source", pageSources);
 export const pecaType = pgEnum("peca_type", pecaTypes);
 export const factKind = pgEnum("fact_kind", factKinds);
 export const plan = pgEnum("plan", plans);
