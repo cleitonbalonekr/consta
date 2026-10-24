@@ -95,4 +95,4 @@ None of these need accounts or keys: the E2E server sets `CONSTA_JOBS=inline`, s
 
 A merge to `main` runs `.github/workflows/deploy.yml`: the CI checks, then `pnpm db:migrate` on production, then `trigger deploy`, then the Vercel production deploy, all from the same commit, and finally a request to `/api/health` on the production URL. Vercel's own Git deploy is off for `main` (`apps/web/vercel.json`) so the web app never ships ahead of its migrations; pull requests still get Vercel preview deploys.
 
-Production runs in São Paulo: Vercel functions in `gru1` and Neon in `aws-sa-east-1`. Runtime secrets live in the Vercel and Trigger.dev production settings; the deploy workflow's own secrets live in the GitHub `production` environment. `.env.example` lists every variable.
+Production runs in São Paulo: Vercel functions in `gru1` and Neon in `aws-sa-east-1`. Runtime secrets live in the Vercel and Trigger.dev production settings; the deploy workflow's own secrets live in the GitHub `production` environment. `.env.example` lists every variable. `docs/production-setup.md` has the one-time dashboard steps, such as Stripe's.

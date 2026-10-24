@@ -12,7 +12,7 @@
 - [x] The summary preset produces cited paragraphs
 - [x] Integration tests cover scope selection, the budget refusal and the caching request
 - [x] E2E covers asking about a peça and requesting a summary, in fake mode
-- [ ] Works locally in both modes
+- [x] Works locally in both modes
 
 ## Comments
 
@@ -31,3 +31,4 @@ Decisions:
 - **`CONTEXT.md` has a new term, Peça summary**, so that it is not mixed up with the short summary of each peça in the document map.
 - **A peça question is read in one run with the ownership check.** `pecaSize` measures the peça in SQL first, so a peça over the budget is never loaded.
 - **A peça id that is not a UUID is a 400**, checked in `parseQuestionRequest`, not a Postgres error.
+

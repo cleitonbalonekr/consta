@@ -16,7 +16,7 @@
 - [x] Unit tests cover rank fusion; integration tests cover dropped statements, citation resolution, refusal and ownership, using scripted fake model answers
 - [x] E2E covers asking about an ingested fixture in fake mode
 - [x] A citation eval script in `packages/evals` runs the 20 pilot questions with real adapters and reports, for each answer, the cited pages to check by hand
-- [ ] Works locally in both modes
+- [x] Works locally in both modes
 
 ## Comments
 
@@ -42,3 +42,4 @@ Decisions:
 - **A refused question is not saved**, because it has no answer.
 - **The fake citing model's default script** cites the first two sources and adds one uncited line, so fake mode and E2E show the citation rule.
 - **The integration tier's test timeout is 30 s**: with the new PGlite test files, a fresh PGlite with every migration took more than 5 s while the unit tier ran in parallel.
+
