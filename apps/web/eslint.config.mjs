@@ -14,6 +14,8 @@ const eslintConfig = defineConfig([
     "next-env.d.ts",
     "test-results/**",
     "playwright-report/**",
+    // pdf.js's wasm decoders, copied from node_modules by scripts/copy-pdfjs-wasm.mjs.
+    "public/pdfjs/**",
   ]),
   {
     // Screens reach modules only through the CaseFiles and Answering interfaces;

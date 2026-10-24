@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
-import { PDFDocument, StandardFonts } from "pdf-lib";
+import { concatTransformationMatrix, drawObject, PDFDocument, popGraphicsState, pushGraphicsState, StandardFonts } from "pdf-lib";
 
 /** The upload's part size in src/components/upload-case-file.tsx. */
 const PART_BYTES = 10 * 1024 * 1024;
@@ -25,14 +25,20 @@ export async function pdfWithPages(pages: number) {
 /**
  * A case file of digital pages, each with a "fls." stamp and a few lines of text, and
  * scanned pages (an image with no text) at the given page numbers. `attachmentBytes` of
- * random bytes make the file larger without adding pages.
+ * random bytes make the file larger without adding pages. `ocrScans` are pages whose text
+ * lies over a JPEG 2000 scan, as on a scanned page with a text layer; pdf.js decodes it with wasm.
  */
-export async function pdfWithText(pages: number, scanned: number[] = [], { attachmentBytes = 0 } = {}) {
+export async function pdfWithText(pages: number, scanned: number[] = [], { attachmentBytes = 0, ocrScans = [] as number[] } = {}) {
   const pdf = await PDFDocument.create();
   const font = await pdf.embedFont(StandardFonts.Helvetica);
   const scan = await pdf.embedPng(SCAN);
+  const jpx = await jpxScan(pdf);
   for (let number = 1; number <= pages; number++) {
     const page = pdf.addPage([595, 842]);
+    if (ocrScans.includes(number)) {
+      const name = page.node.newXObject("Scan", jpx);
+      page.pushOperators(pushGraphicsState(), concatTransformationMatrix(595, 0, 0, 842, 0, 0), drawObject(name), popGraphicsState());
+    }
     page.drawText(`fls. ${number}`, { x: 480, y: 800, size: 10, font });
     if (scanned.includes(number)) {
       page.drawImage(scan, { x: 0, y: 0, width: 595, height: 842 });
@@ -44,6 +50,12 @@ export async function pdfWithText(pages: number, scanned: number[] = [], { attac
   }
   if (attachmentBytes > 0) await pdf.attach(randomBytes(attachmentBytes), "anexo.bin", { mimeType: "application/octet-stream" });
   return Buffer.from(await pdf.save());
+}
+
+/** A 64×64 JPEG 2000 image, stored as is: pdf-lib embeds only PNG and JPEG. */
+async function jpxScan(pdf: PDFDocument) {
+  const bytes = await readFile(path.join(__dirname, "../fixtures/scan.jp2"));
+  return pdf.context.register(pdf.context.stream(bytes, { Type: "XObject", Subtype: "Image", Width: 64, Height: 64, Filter: "JPXDecode" }));
 }
 
 /** A one-page PDF larger than one upload part, so the browser sends it in two parts. */

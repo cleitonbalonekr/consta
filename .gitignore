@@ -27,3 +27,6 @@ npm-debug.log*
 test-results/
 playwright-report/
 e2e-server.log
+
+# pdf.js wasm decoders, copied from node_modules by apps/web/scripts/copy-pdfjs-wasm.mjs
+apps/web/public/pdfjs/

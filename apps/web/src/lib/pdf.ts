@@ -8,12 +8,21 @@ async function loadPdfJs() {
 }
 
 /**
+ * Where pdf.js fetches its wasm decoders (scripts/copy-pdfjs-wasm.mjs puts them there). Without
+ * them a JPEG 2000 or JBIG2 image, as scanned pages often are, is skipped and the page renders white.
+ * The worker fetches it, so it must be absolute: relative, it would resolve against the worker's URL.
+ */
+function wasmUrl() {
+  return new URL("/pdfjs/wasm/", window.location.origin).href;
+}
+
+/**
  * Opens a PDF from a URL, reading only the byte ranges of the pages it shows when the
  * server allows range requests. Without the two flags pdf.js streams the whole file behind them.
  */
 export async function openPdf(url: string): Promise<PDFDocumentProxy> {
   const pdfjs = await loadPdfJs();
-  return pdfjs.getDocument({ url, disableAutoFetch: true, disableStream: true }).promise;
+  return pdfjs.getDocument({ url, disableAutoFetch: true, disableStream: true, wasmUrl: wasmUrl() }).promise;
 }
 
 /** Counts the pages of a PDF the lawyer picked, before any byte is uploaded. */

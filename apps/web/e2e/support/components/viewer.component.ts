@@ -44,6 +44,17 @@ export class ViewerComponent extends BasePage {
     await expect(this.renderedPage).toHaveAttribute("data-rendered-page", String(page), { timeout: 10_000 });
   }
 
+  /** Most of the rendered page is drawn on, as a full-page scan draws it; a scan pdf.js failed to decode leaves it white. */
+  async expectScanDrawn() {
+    const drawn = await this.renderedPage.locator("canvas").evaluate((canvas: HTMLCanvasElement) => {
+      const { data } = canvas.getContext("2d")!.getImageData(0, 0, canvas.width, canvas.height);
+      let pixels = 0;
+      for (let i = 0; i < data.length; i += 4) if (data[i]! < 245 || data[i + 1]! < 245 || data[i + 2]! < 245) pixels++;
+      return pixels / (data.length / 4);
+    });
+    expect(drawn).toBeGreaterThan(0.5);
+  }
+
   /** Every mark lies on the rendered page, not just somewhere on screen. */
   async expectMarksOnPage() {
     await expect(this.marks).not.toHaveCount(0);

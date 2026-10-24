@@ -132,4 +132,17 @@ test.describe("the viewer", () => {
     await expect(viewer.pageNumber).toContainText("fls. 2");
     await expect(viewer.marks).toHaveCount(0);
   });
+
+  test("shows a scanned page whose image is JPEG 2000", async ({ caseFileList, caseFile, answer, viewer }) => {
+    await caseFileList.goto();
+    await caseFileList.uploadAndOpen(uniqueName("Autos digitalizados"), await pdfWithText(2, [], { ocrScans: [1] }));
+    await caseFile.expectReady();
+    await caseFile.ask("Quem pede a indenização?");
+    await answer.waitUntilDone();
+
+    await answer.citation(0, 0).click();
+    await viewer.expectPage(1);
+
+    await viewer.expectScanDrawn();
+  });
 });
