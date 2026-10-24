@@ -24,6 +24,11 @@ export class CaseFilePage extends BasePage {
     return this.byId("unread-pages-list");
   }
 
+  /** The notice that the PDF has no text, as a PDF of scans with no OCR. */
+  get noText() {
+    return this.byId("no-text");
+  }
+
   get failure() {
     return this.byId("ingestion-failed");
   }

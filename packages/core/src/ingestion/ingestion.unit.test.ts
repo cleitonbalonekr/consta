@@ -188,6 +188,8 @@ describe("Ingestion of scanned pages", () => {
         { first: 2, last: 3 },
         { first: 5, last: 5 },
       ],
+      unreadPageCount: 3,
+      allPagesScanned: false,
     });
     const scanned = pagesOf(caseFileId).filter((page) => page.source === "scanned");
     expect(scanned.map(({ number, folha, text, blocks }) => ({ number, folha, text, blocks }))).toEqual([
@@ -196,6 +198,14 @@ describe("Ingestion of scanned pages", () => {
       { number: 5, folha: "6", text: "", blocks: [] },
     ]);
     expect(passagesOf(caseFileId).map((passage) => passage.page)).toEqual([1, 4]);
+  });
+
+  it("tells the lawyer when no page has text, as in a PDF of scans with no OCR", async () => {
+    const { caseFiles, lawyer, ingest } = await setup();
+
+    const caseFileId = await ingest(["scanned", "scanned", "scanned"]);
+
+    expect(await caseFiles.view(lawyer, caseFileId)).toMatchObject({ status: "ready", unreadPages: [{ first: 1, last: 3 }], unreadPageCount: 3, allPagesScanned: true });
   });
 });
 

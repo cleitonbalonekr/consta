@@ -41,6 +41,10 @@ export type CaseFileView = CaseFileSummary & {
   error: string | null;
   /** The scanned pages that were not read, so no answer can cite them (ADR-0010). */
   unreadPages: UnreadPages;
+  /** How many pages `unreadPages` covers. */
+  unreadPageCount: number;
+  /** Every page is scanned, so the PDF has no text Consta can read. False until ready. */
+  allPagesScanned: boolean;
   /** Empty until the case file is ready. */
   documentMap: PecaView[];
   /** Empty until the case file is ready. */
@@ -205,5 +209,6 @@ function toSummary(caseFile: CaseFile): CaseFileSummary {
 
 function toView(caseFile: CaseFile, derived: Pick<CaseFileView, "documentMap" | "folhas">): CaseFileView {
   const { error, unreadPages } = caseFile.snapshot();
-  return { ...toSummary(caseFile), error, unreadPages, ...derived };
+  const { unreadPageCount, allPagesScanned } = caseFile;
+  return { ...toSummary(caseFile), error, unreadPages, unreadPageCount, allPagesScanned, ...derived };
 }

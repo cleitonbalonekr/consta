@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import { DrizzleUnitOfWork, schema } from "../db";
 import { createTestDb, insertLawyer } from "../db/testing";
@@ -162,6 +162,33 @@ describe("Answering about one peça on Postgres", () => {
     expect(answer).toEqual([{ type: "refused", reason: "scope-too-large" }]);
     expect(model.calls).toEqual([]);
     expect(await db.select().from(schema.question)).toEqual([]);
+  });
+
+  it("refuses a peça whose digital pages have no text as not readable, calls no model and saves nothing", async () => {
+    const { events, lawyer, caseFileId, pecas, model, db } = await withPecas();
+    await db
+      .update(schema.page)
+      .set({ text: "", blocks: [] })
+      .where(and(eq(schema.page.caseFileId, caseFileId), inArray(schema.page.number, [1, 2])));
+
+    const answer = await events(lawyer, { caseFileId, scope: { kind: "peca", pecaId: pecas[0].id }, text: "O que houve?" });
+
+    expect(answer).toEqual([{ type: "refused", reason: "not-readable" }]);
+    expect(model.calls).toEqual([]);
+    expect(await db.select().from(schema.question)).toEqual([]);
+  });
+
+  it("answers a peça from its one digital page with text when another has none", async () => {
+    const { events, lawyer, caseFileId, pecas, model, db } = await withPecas();
+    await db
+      .update(schema.page)
+      .set({ text: "", blocks: [] })
+      .where(and(eq(schema.page.caseFileId, caseFileId), eq(schema.page.number, 1)));
+
+    const answer = await events(lawyer, { caseFileId, scope: { kind: "peca", pecaId: pecas[0].id }, text: "O que houve?" });
+
+    expect(answer.at(-1)).toMatchObject({ type: "done" });
+    expect(model.calls[0]!.sources.map((source) => source.title)).toEqual(["Página 2 (fls. 3)"]);
   });
 
   it("refuses a peça whose pages are all scanned as not readable, and names the scanned pages it left out of another", async () => {

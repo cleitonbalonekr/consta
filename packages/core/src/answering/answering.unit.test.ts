@@ -362,6 +362,26 @@ describe("Answering.ask about one peça", () => {
     expect(uow.state.answering.questions).toHaveLength(1);
   });
 
+  it("refuses a peça whose digital pages have no text as not readable, without calling the model, and saves nothing", async () => {
+    const model = new FakeCitingModel();
+    const { ask, pecas, pageOn, uow } = await withPecas({ model });
+    pageOn(1).blocks = [];
+    pageOn(2).blocks = [];
+
+    expect(await ask(pecas[0].id)).toEqual([{ type: "refused", reason: "not-readable" }]);
+    expect(model.calls).toEqual([]);
+    expect(uow.state.answering.questions).toEqual([]);
+  });
+
+  it("answers a peça from its one digital page with text when another has none", async () => {
+    const model = new FakeCitingModel();
+    const { ask, pecas, pageOn } = await withPecas({ model });
+    pageOn(1).blocks = [];
+
+    expect((await ask(pecas[0].id)).at(-1)).toMatchObject({ type: "done" });
+    expect(model.calls[0]!.sources.map((source) => source.title)).toEqual(["Página 2 (fls. 3)"]);
+  });
+
   it("refuses a case file that is not ready", async () => {
     const { caseFiles, events, lawyer } = await setup();
     const { caseFileId } = await caseFiles.startUpload(lawyer, { name: "Autos.pdf", bytes: 10, pages: 1 });

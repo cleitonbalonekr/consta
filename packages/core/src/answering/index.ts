@@ -55,6 +55,14 @@ export type Refusal = "not-ready" | "scope-too-large" | "not-readable";
 /** One page of a peça, as a question about the peça reads it. A scanned page has no blocks (ADR-0010). */
 export type PecaPage = { page: number; folha: string | null; source: PageSource; blocks: Block[] };
 
+/**
+ * A page a statement can cite: a digital page with a block. A scanned page is not read (ADR-0010),
+ * and a digital page with an empty text layer has nothing to cite.
+ */
+function isCitable(page: PecaPage) {
+  return page.source === "digital" && page.blocks.length > 0;
+}
+
 /** A question and its answer, as the Answering repository stores it. Ticket 11 adds the quick actions. */
 export type QuestionRecord = {
   id: QuestionId;
@@ -162,8 +170,9 @@ export class Answering {
 
   /**
    * Yields `refused` with the Refusal when the question can't be answered: a case file that is
-   * not ready, a peça over PECA_CHAR_BUDGET, or a peça with only scanned pages. Otherwise yields
-   * each cited statement as soon as its line ends, saves the question, and yields `done` last.
+   * not ready, a peça over PECA_CHAR_BUDGET, or a peça with no page to cite (scanned pages, or
+   * digital pages with no text). Otherwise yields each cited statement as soon as its line ends,
+   * saves the question, and yields `done` last.
    * When the model declines part way, yields `refused: "declined"` last and saves nothing. Throws
    * NotFound if the lawyer doesn't own the case file, or the case file has no such peça. Ticket
    * 11 adds the quick actions; until then they throw NotImplemented.
@@ -208,15 +217,13 @@ export class Answering {
     if (size === null) throw new NotFound(`Peça ${pecaId} not found.`);
     if (size.chars > PECA_CHAR_BUDGET) return "scope-too-large";
     const pages = await repo.pecaPages(caseFileId, pecaId);
-    // A scanned page is not read, so no statement can cite it (ADR-0010).
-    return pages.some((page) => page.source === "digital") ? pages : "not-readable";
+    return pages.some(isCitable) ? pages : "not-readable";
   }
 
-  /** The digital pages of the peça, one passage per page and one block per line, cached for follow-up questions. */
+  /** The citable pages of the peça, one passage per page and one block per line, cached for follow-up questions. */
   private pecaReading(pages: PecaPage[], prompt: string): Reading {
-    // A source needs a block, and a page with none has nothing to cite.
-    const digital = pages.filter((page) => page.source === "digital" && page.blocks.length > 0);
-    const passages = digital.map(({ page, folha, blocks }) => ({
+    const citable = pages.filter(isCitable);
+    const passages = citable.map(({ page, folha, blocks }) => ({
       id: `page-${page}`,
       page,
       folha,

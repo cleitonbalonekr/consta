@@ -86,6 +86,19 @@ export class CaseFile {
     return this.props.status;
   }
 
+  /** How many scanned pages ingestion did not read. 0 until ready. */
+  get unreadPageCount(): number {
+    return this.props.unreadPages.reduce((total, { first, last }) => total + last - first + 1, 0);
+  }
+
+  /**
+   * No page has text: every page is a scanned page with no OCR text layer, so Consta read
+   * nothing (ADR-0010). False until ready, since the unread pages are known only then.
+   */
+  get allPagesScanned(): boolean {
+    return this.props.pageCount > 0 && this.unreadPageCount === this.props.pageCount;
+  }
+
   /** A copy of the stored fields, for the repository and for views. */
   snapshot(): CaseFileProps {
     return { ...this.props };

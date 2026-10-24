@@ -26,6 +26,17 @@ test.describe("uploading a case file", () => {
 
     await caseFile.expectReady();
     await expect(caseFile.unreadPages).toHaveText("p. 3–4 e 7");
+    await expect(caseFile.noText).toHaveCount(0);
+  });
+
+  test("tells the lawyer that a PDF of scans with no text can't be read yet", async ({ caseFileList, caseFile }) => {
+    await caseFileList.goto();
+
+    await caseFileList.uploadAndOpen(uniqueName("Autos sem OCR"), await pdfWithText(2, [1, 2]));
+
+    await caseFile.expectReady();
+    await expect(caseFile.noText).toContainText("Este PDF não tem texto");
+    await expect(caseFile.unreadPages).toHaveCount(0);
   });
 
   test("shows the new case file in the list", async ({ caseFileList, caseFile, page }) => {
