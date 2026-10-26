@@ -54,9 +54,9 @@ export class InMemoryFileStore implements FileStore {
     return { bytes: whole.length };
   }
 
+  /** Like S3, which forgets an aborted upload: aborting it again is not an error. */
   async abortMultipart(key: string, uploadId: string) {
-    this.upload(key, uploadId);
-    this.uploads.delete(uploadId);
+    if (this.uploads.get(uploadId)?.key === key) this.uploads.delete(uploadId);
   }
 
   async readUrl(key: string, expiresInSeconds: number) {

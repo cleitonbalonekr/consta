@@ -1,10 +1,10 @@
-import { and, asc, between, desc, eq, sql } from "drizzle-orm";
-import type { AnsweringRepository, PecaPage, QuestionRecord, RankedPassages } from "../../answering";
-import type { CaseFileId, LawyerId, PecaId } from "../../shared";
+import { and, asc, between, desc, eq, inArray, sql } from "drizzle-orm";
+import type { AnsweringRepository, PageFact, PecaPage, QuestionRecord, RankedPassages } from "../../answering";
+import type { CaseFileId, FactKind, LawyerId, PecaId } from "../../shared";
 import type { Db } from "../index";
 import * as schema from "../schema";
 
-const { caseFile, page, passage, peca, question } = schema;
+const { caseFile, fact, page, passage, peca, question } = schema;
 
 type Ranking = "vector" | "text";
 
@@ -98,8 +98,18 @@ export class DrizzleAnsweringRepository implements AnsweringRepository {
     return rows;
   }
 
-  async saveQuestion({ id, caseFileId, lawyer, scope, text, answer, dropped }: QuestionRecord) {
+  async facts(caseFileId: CaseFileId, kinds: readonly FactKind[]): Promise<PageFact[]> {
+    return this.db
+      .select({ kind: fact.kind, value: fact.value, normalizedValue: fact.normalizedValue, context: fact.context, page: fact.page, folha: page.folha })
+      .from(fact)
+      .innerJoin(page, and(eq(page.caseFileId, fact.caseFileId), eq(page.number, fact.page)))
+      .where(and(eq(fact.caseFileId, caseFileId), inArray(fact.kind, [...kinds])))
+      // "C" collation, so Postgres orders values by code point as the fake does.
+      .orderBy(asc(fact.page), sql`${fact.value} collate "C"`);
+  }
+
+  async saveQuestion({ id, caseFileId, lawyer, scope, quickAction, text, answer, dropped }: QuestionRecord) {
     const pecaId = scope.kind === "peca" ? scope.pecaId : null;
-    await this.db.insert(question).values({ id, caseFileId, lawyerId: lawyer, scope: scope.kind, pecaId, text, answer, droppedStatements: dropped });
+    await this.db.insert(question).values({ id, caseFileId, lawyerId: lawyer, scope: scope.kind, quickAction, pecaId, text, answer, droppedStatements: dropped });
   }
 }

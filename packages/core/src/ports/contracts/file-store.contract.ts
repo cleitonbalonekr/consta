@@ -81,6 +81,19 @@ export function fileStoreContract(setup: FileStoreSetup) {
       expect(bytes).toEqual(second.slice(0, 100));
     });
 
+    it("aborts an upload, which drops its parts, and aborting it again is not an error", async () => {
+      const { files, putPart } = await setup();
+      const key = newKey();
+      const { uploadId } = await files.startMultipart(key, "application/pdf");
+      await putPart(await files.signPart(key, uploadId, 1), bytesOf(1_000, 1));
+
+      await files.abortMultipart(key, uploadId);
+      await files.abortMultipart(key, uploadId);
+
+      await expect(files.listParts(key, uploadId)).rejects.toThrow();
+      await expect(files.read(key)).rejects.toThrow();
+    });
+
     it("removes an object, and removing a missing key is not an error", async () => {
       const { files, putPart } = await setup();
       const { key, uploadId } = await uploadTwoParts(files, putPart);

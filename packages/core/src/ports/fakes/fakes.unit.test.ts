@@ -53,6 +53,23 @@ describe("FakeMapExtractor", () => {
       { type: "sentenca", title: "Sentença", firstPage: 5, lastPage: 5 },
     ]);
   });
+
+  it("records, by default, a fact of every kind on each page with text, so fake mode has quick actions to answer", async () => {
+    const pages = [
+      { page: 1, text: "Página 1", source: "digital" as const },
+      { page: 2, text: "", source: "scanned" as const },
+    ];
+
+    const { facts } = await new FakeMapExtractor().extract({ pages, openPeca: null });
+
+    expect(facts.map(({ kind, page }) => [kind, page])).toEqual([
+      ["person", 1],
+      ["role", 1],
+      ["date", 1],
+      ["amount", 1],
+      ["event", 1],
+    ]);
+  });
 });
 
 describe("FakeCitingModel", () => {

@@ -74,9 +74,12 @@ function CaseFileRow({ caseFile }: { caseFile: CaseFileSummary }) {
         </p>
       </div>
       <StatusBadge status={caseFile.status} pagesDone={caseFile.pagesDone} pageCount={caseFile.pageCount} />
-      <div className="relative">
-        <DeleteCaseFile caseFileId={caseFile.id} name={caseFile.name} />
-      </div>
+      {/* Hidden while ingestion reads the case file, which can't be deleted then. */}
+      {caseFile.deletable && (
+        <div className="relative">
+          <DeleteCaseFile caseFileId={caseFile.id} name={caseFile.name} />
+        </div>
+      )}
     </li>
   );
 }

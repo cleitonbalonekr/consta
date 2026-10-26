@@ -89,7 +89,13 @@ export class S3FileStore implements FileStore {
   }
 
   async abortMultipart(key: string, uploadId: string) {
-    await this.client.send(new AbortMultipartUploadCommand({ Bucket: this.bucket, Key: key, UploadId: uploadId }));
+    try {
+      await this.client.send(new AbortMultipartUploadCommand({ Bucket: this.bucket, Key: key, UploadId: uploadId }));
+    } catch (error) {
+      // MinIO accepts a second abort; S3 answers NoSuchUpload for an upload it already forgot.
+      if (error instanceof Error && error.name === "NoSuchUpload") return;
+      throw error;
+    }
   }
 
   readUrl(key: string, expiresInSeconds: number) {

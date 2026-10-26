@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
-import type { CitingModel, CitingModelEvent, Source, SourceCitation } from "../ports";
-import { FakeCitingModel, FakeReranker, InMemoryUnitOfWork } from "../ports/fakes";
-import { LawyerId, NotFound, NotImplemented, PecaId } from "../shared";
-import type { CaseFileId } from "../shared";
+import type { CitingModel, CitingModelEvent, FactDraft, Source, SourceCitation } from "../ports";
+import { FakeCitingModel, FakeMapExtractor, FakeReranker, InMemoryUnitOfWork } from "../ports/fakes";
+import { LawyerId, NotFound, PecaId } from "../shared";
+import type { CaseFileId, FactKind, QuickAction } from "../shared";
 import { PASSAGES_FOR_MODEL, PECA_CHAR_BUDGET, PECA_SUMMARY_PROMPT } from "./index";
 import type { AnswerEvent, Statement } from "./index";
 import { answeringOn, sourceOn } from "./testing";
@@ -72,6 +72,7 @@ describe("Answering.ask about the whole case file", () => {
         caseFileId,
         lawyer,
         scope: { kind: "whole-file" },
+        quickAction: null,
         text: "Do que trata esta ação?",
         answer: statements(events),
         dropped: 2,
@@ -225,11 +226,109 @@ describe("Answering.ask about the whole case file", () => {
     await expect(first({ caseFileId, quickAction: "timeline" })).rejects.toThrow(NotFound);
   });
 
-  it("does not answer a quick action yet (ticket 11)", async () => {
-    const { ingest, answering, lawyer } = await setup();
-    const caseFileId = await ingest(lawyer, ["digital"]);
+});
 
-    await expect(answering.ask(lawyer, { caseFileId, quickAction: "timeline" })[Symbol.asyncIterator]().next()).rejects.toThrow(NotImplemented);
+describe("Answering.ask for a quick action", () => {
+  const fact = (kind: FactKind, value: string, page: number, normalizedValue: string | null = null): FactDraft => ({
+    kind,
+    value,
+    normalizedValue,
+    context: `sobre ${value}`,
+    page,
+  });
+  // Out of page order, as windows and kinds mix them.
+  const FACTS = [
+    fact("event", "Citação do réu", 3),
+    fact("person", "Maria Aparecida Souza", 1, "Maria Aparecida Souza"),
+    fact("date", "10/03/2026", 1, "2026-03-10"),
+    fact("amount", "R$ 10.000,00", 2, "10000.00"),
+    fact("role", "Autora", 2),
+    fact("date", "05/01/2026", 3, "2026-01-05"),
+  ];
+
+  /** A ready case file of three digital pages, whose map records FACTS. */
+  async function withFacts(options: Parameters<typeof answeringOn>[1] = {}, facts = FACTS) {
+    const mapExtractor = new FakeMapExtractor((input) => ({
+      ...FakeMapExtractor.twoPagePecas(input),
+      facts: facts.filter((draft) => input.pages.some((page) => page.page === draft.page)),
+    }));
+    const built = await setup({ ...options, mapExtractor });
+    const caseFileId = await built.ingest(built.lawyer, ["digital", "digital", "digital"]);
+    const run = (quickAction: QuickAction) => built.events(built.lawyer, { caseFileId, quickAction });
+    return { ...built, caseFileId, run };
+  }
+
+  it.each([
+    ["timeline", ["Página 1 (fls. 2): 10/03/2026 (2026-03-10), sobre 10/03/2026", "Página 3 (fls. 4): 05/01/2026 (2026-01-05), sobre 05/01/2026", "Página 3 (fls. 4): Citação do réu, sobre Citação do réu"]],
+    ["people", ["Página 1 (fls. 2): Maria Aparecida Souza, sobre Maria Aparecida Souza", "Página 2 (fls. 3): Autora, sobre Autora"]],
+    ["amounts", ["Página 2 (fls. 3): R$ 10.000,00 (10000.00), sobre R$ 10.000,00"]],
+  ] as const)("the %s reads only its kinds of fact, one source each, labelled with its page, in page order", async (quickAction, expected) => {
+    const model = new FakeCitingModel();
+    const { run, uow } = await withFacts({ model });
+    const before = uow.state.metering.usage.length;
+
+    await run(quickAction);
+
+    const [call] = model.calls;
+    expect(call!.sources.map((source) => `${source.title}: ${source.blocks.join(" | ")}`)).toEqual(expected);
+    expect(call!.cacheSources).toBe(false);
+    // No search: the facts are read, not embedded or reranked.
+    expect(uow.state.metering.usage.slice(before).map((event) => event.kind)).toEqual(["answer"]);
+  });
+
+  it("cites the page of each fact, drops the uncited lines, and saves the question as a whole-file quick action", async () => {
+    const model = scripted((sources) => [
+      { text: "- 05/01/2026: o réu foi citado.\n", sourceIds: [sources[1]!.id, sources[2]!.id] },
+      { text: "- 10/03/2026: a ação foi proposta.\n", sourceIds: [sources[0]!.id] },
+      { text: "Esses são os fatos dos autos.\n", sourceIds: [] },
+    ]);
+    const { run, uow, caseFileId, lawyer } = await withFacts({ model });
+
+    const events = await run("timeline");
+
+    const onPage3 = { page: 3, folha: "4", boxes: [] };
+    expect(statements(events)).toEqual([
+      {
+        text: "05/01/2026: o réu foi citado.",
+        citations: [
+          { ...onPage3, quote: "05/01/2026 (2026-01-05), sobre 05/01/2026" },
+          { ...onPage3, quote: "Citação do réu, sobre Citação do réu" },
+        ],
+      },
+      { text: "10/03/2026: a ação foi proposta.", citations: [{ page: 1, folha: "2", quote: "10/03/2026 (2026-03-10), sobre 10/03/2026", boxes: [] }] },
+    ]);
+    const done = events.at(-1)!;
+    expect(done).toEqual({ type: "done", questionId: expect.any(String), dropped: 1, unreadPages: [] });
+    expect(uow.state.answering.questions).toEqual([
+      {
+        id: done.type === "done" ? done.questionId : "",
+        caseFileId,
+        lawyer,
+        scope: { kind: "whole-file" },
+        quickAction: "timeline",
+        text: "Linha do tempo",
+        answer: statements(events),
+        dropped: 1,
+      },
+    ]);
+  });
+
+  it("answers nothing without calling the model when the case file has no fact of its kinds", async () => {
+    const model = new FakeCitingModel();
+    const { run } = await withFacts({ model }, [fact("person", "Maria Aparecida Souza", 1)]);
+
+    const events = await run("amounts");
+
+    expect(model.calls).toEqual([]);
+    expect(events).toEqual([{ type: "done", questionId: expect.any(String), dropped: 0, unreadPages: [] }]);
+  });
+
+  it("refuses a case file that is not ready, and saves nothing", async () => {
+    const { caseFiles, lawyer, uow, events } = await setup();
+    const { caseFileId } = await caseFiles.startUpload(lawyer, { name: "Autos.pdf", bytes: 10, pages: 1 });
+
+    expect(await events(lawyer, { caseFileId, quickAction: "people" })).toEqual([{ type: "refused", reason: "not-ready" }]);
+    expect(uow.state.answering.questions).toEqual([]);
   });
 });
 
@@ -319,6 +418,7 @@ describe("Answering.ask about one peça", () => {
         caseFileId,
         lawyer,
         scope: { kind: "peca", pecaId: pecas[1].id },
+        quickAction: null,
         text: "O que o réu contesta?",
         answer: statements(events),
         dropped: 1,

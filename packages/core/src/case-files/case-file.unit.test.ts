@@ -23,7 +23,8 @@ const allowed: Record<CaseFileStatus, Array<keyof typeof moves>> = {
   mapping: ["markReady", "fail"],
   ready: ["startDeleting"],
   failed: ["startDeleting"],
-  deleting: [],
+  // A remove that stopped part way runs again.
+  deleting: ["startDeleting"],
 };
 
 function newCaseFile() {
@@ -45,6 +46,12 @@ function caseFileIn(status: CaseFileStatus) {
 }
 
 describe("CaseFile", () => {
+  it("is deletable unless ingestion is reading it", () => {
+    const deletable = caseFileStatuses.filter((status) => caseFileIn(status).deletable);
+
+    expect(deletable).toEqual(["uploading", "ready", "failed", "deleting"]);
+  });
+
   it("starts uploading, with the browser's page count and an open upload", () => {
     const caseFile = newCaseFile();
 

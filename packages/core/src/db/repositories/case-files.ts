@@ -61,6 +61,12 @@ export class DrizzleCaseFileRepository implements CaseFileRepository {
       .onConflictDoUpdate({ target: schema.caseFile.id, set: row });
   }
 
+  /** The foreign keys cascade to the derived rows and set the usage's case file to null. */
+  async remove(id: CaseFileId) {
+    if (!UUID.test(id)) return;
+    await this.db.delete(schema.caseFile).where(eq(schema.caseFile.id, id));
+  }
+
   private async findWhere(id: CaseFileId, owner: SQL | undefined, options?: { lock: boolean }) {
     if (!UUID.test(id)) return null;
     const query = this.db

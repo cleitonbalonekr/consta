@@ -16,6 +16,7 @@ export interface FileStore {
    * upload that is already complete returns the same size, so a caller may retry.
    */
   completeMultipart(key: string, uploadId: string): Promise<{ bytes: number }>;
+  /** Drops the stored parts. Aborting an upload that is already gone is not an error, so a caller may retry. */
   abortMultipart(key: string, uploadId: string): Promise<void>;
   /** A signed URL the viewer can read with HTTP range requests. */
   readUrl(key: string, expiresInSeconds: number): Promise<string>;

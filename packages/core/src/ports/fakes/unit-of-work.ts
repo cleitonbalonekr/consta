@@ -1,11 +1,11 @@
 import { AsyncLocalStorage } from "node:async_hooks";
-import type { AnsweringRepository, FoundPassage, PecaPage, QuestionRecord, RankedPassages } from "../../answering";
+import type { AnsweringRepository, FoundPassage, PageFact, PecaPage, QuestionRecord, RankedPassages } from "../../answering";
 import { CaseFile } from "../../case-files";
 import type { CaseFileProps, CaseFileRepository, Folhas, PecaView } from "../../case-files";
 import type { IngestionRepository, PageRecord, PassageRecord } from "../../ingestion";
 import type { LawyerPlan, MeteringRepository, QuotaCharge, UsageCost } from "../../metering";
 import { PecaId } from "../../shared";
-import type { CaseFileId, LawyerId, PageRange } from "../../shared";
+import type { CaseFileId, FactKind, LawyerId, PageRange } from "../../shared";
 import type { FactDraft, PecaDraft } from "../map-extractor";
 import type { Repositories, UnitOfWork } from "../unit-of-work";
 import type { Usage } from "../usage";
@@ -102,6 +102,21 @@ class InMemoryCaseFileRepository implements CaseFileRepository {
 
   async save(caseFile: CaseFile) {
     this.state().caseFiles.set(caseFile.id, caseFile.snapshot());
+  }
+
+  /** Like the foreign keys on Postgres: the derived rows go with the case file, and its usage keeps a null id. */
+  async remove(id: CaseFileId) {
+    const state = this.state();
+    const notOf = <T extends { caseFileId: CaseFileId | null }>(rows: T[]) => rows.filter((row) => row.caseFileId !== id);
+    state.caseFiles.delete(id);
+    const { ingestion } = state;
+    ingestion.ranges = notOf(ingestion.ranges);
+    ingestion.pages = notOf(ingestion.pages);
+    ingestion.passages = notOf(ingestion.passages);
+    ingestion.pecas = notOf(ingestion.pecas);
+    ingestion.facts = notOf(ingestion.facts);
+    state.answering.questions = notOf(state.answering.questions);
+    for (const usage of state.metering.usage) if (usage.caseFileId === id) usage.caseFileId = null;
   }
 }
 
@@ -237,6 +252,17 @@ class InMemoryAnsweringRepository implements AnsweringRepository {
     return pages
       .filter((page) => page.caseFileId === caseFileId && page.number >= peca.firstPage && page.number <= peca.lastPage)
       .sort((a, b) => a.number - b.number);
+  }
+
+  async facts(caseFileId: CaseFileId, kinds: readonly FactKind[]): Promise<PageFact[]> {
+    const { facts, pages } = this.state().ingestion;
+    return facts
+      .filter((fact) => fact.caseFileId === caseFileId && kinds.includes(fact.kind))
+      .sort((a, b) => a.page - b.page || (a.value < b.value ? -1 : a.value > b.value ? 1 : 0))
+      .map(({ caseFileId: _, ...fact }) => {
+        const folha = pages.find((page) => page.caseFileId === caseFileId && page.number === fact.page)?.folha ?? null;
+        return { ...fact, folha };
+      });
   }
 
   async saveQuestion(question: QuestionRecord) {

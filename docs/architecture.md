@@ -273,6 +273,14 @@ The `CaseFile` entity in the Case files module owns this lifecycle (ADR-0007). E
 2. In one run: lock the case file row, charge the pages (`Metering.chargePages` locks the lawyer's plan row), call `CaseFile.queue` and save it.
 3. After the commit: ask `Jobs` to start ingestion. If `Jobs` fails, the case file stays `queued`. A new `finishUpload` asks again, and Trigger.dev starts ingestion only once.
 
+`remove` does its work in this order:
+
+1. In one run: lock the case file row and call `CaseFile.startDeleting`, unless it is already `deleting`. A case file that ingestion is reading throws `InvalidStatus`.
+2. After the commit: abort the open multipart upload, if any, and remove the stored PDF. Both can run again.
+3. In one run: delete the case file row. The foreign keys delete its ranges, pages, passages, peças, facts and questions, and set its usage records' case file to null. The quota charge has no foreign key and stays.
+
+If storage fails, the case file stays `deleting`, and a new `remove` finishes the delete.
+
 ## Repository layout
 
 ```text

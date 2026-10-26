@@ -2,7 +2,7 @@ import { and, eq, inArray } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import { DrizzleUnitOfWork, schema } from "../db";
 import { createTestDb, insertLawyer } from "../db/testing";
-import { FakeCitingModel } from "../ports/fakes";
+import { FakeCitingModel, FakeMapExtractor } from "../ports/fakes";
 import { NotFound } from "../shared";
 import type { CaseFileId } from "../shared";
 import { PECA_CHAR_BUDGET, PECA_SUMMARY_PROMPT, PECA_SUMMARY_TEXT } from "./index";
@@ -208,5 +208,40 @@ describe("Answering about one peça on Postgres", () => {
     const [othersPeca] = await documentMap(lawyer, other);
 
     await expect(events(lawyer, { caseFileId, scope: { kind: "peca", pecaId: othersPeca!.id }, text: "?" })).rejects.toThrow(NotFound);
+  });
+});
+
+describe("Answering a quick action on Postgres", () => {
+  /** A ready case file of three digital pages, with one fact of every kind seeded on it. */
+  async function withFacts() {
+    const model = new FakeCitingModel(({ sources }) => sources.map((source) => ({ text: `${source.blocks[0]}\n`, sourceIds: [source.id] })));
+    // A map with no facts, so the seeded ones are all there are.
+    const built = await setup({ model, mapExtractor: new FakeMapExtractor(FakeMapExtractor.twoPagePecas) });
+    const caseFileId = await built.ingest(built.lawyer, ["digital", "digital", "digital"]);
+    const seeded = [
+      { kind: "event", value: "Citação do réu", page: 3 },
+      { kind: "date", value: "10/03/2026", page: 1 },
+      { kind: "person", value: "Maria Aparecida Souza", page: 1 },
+      { kind: "role", value: "Autora", page: 2 },
+      { kind: "amount", value: "R$ 10.000,00", page: 2 },
+    ] as const;
+    await built.db.insert(schema.fact).values(seeded.map((fact) => ({ ...fact, caseFileId, context: "contexto" })));
+    return { ...built, model, caseFileId };
+  }
+
+  it.each([
+    ["timeline", "Linha do tempo", ["10/03/2026, contexto", "Citação do réu, contexto"], [[1, "2"], [3, "4"]]],
+    ["people", "Pessoas", ["Maria Aparecida Souza, contexto", "Autora, contexto"], [[1, "2"], [2, "3"]]],
+    ["amounts", "Valores", ["R$ 10.000,00, contexto"], [[2, "3"]]],
+  ] as const)("the %s cites the page and folha of each of its facts, and is saved as a whole-file quick action", async (quickAction, text, quotes, pages) => {
+    const { events, lawyer, caseFileId, db } = await withFacts();
+
+    const answer = await events(lawyer, { caseFileId, quickAction });
+
+    const cited = statements(answer).map((statement) => statement.citations[0]);
+    expect(cited.map((citation) => citation.quote)).toEqual(quotes);
+    expect(cited.map((citation) => [citation.page, citation.folha])).toEqual(pages);
+    const rows = await db.select().from(schema.question).where(eq(schema.question.caseFileId, caseFileId));
+    expect(rows).toEqual([expect.objectContaining({ scope: "whole-file", quickAction, pecaId: null, text, answer: statements(answer), droppedStatements: 0 })]);
   });
 });

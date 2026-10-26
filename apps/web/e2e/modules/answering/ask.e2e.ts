@@ -87,9 +87,6 @@ test("a peça of scanned pages is refused, and an answer names the scanned pages
 });
 
 test.describe("quick actions", () => {
-  // Needs ticket 11.
-  test.fixme();
-
   test.beforeEach(async ({ caseFileList, caseFile }) => {
     await caseFileList.goto();
     await caseFileList.uploadAndOpen(uniqueName("Autos para perguntas"), await pdfWithText(3));
@@ -97,14 +94,16 @@ test.describe("quick actions", () => {
   });
 
   for (const action of ["timeline", "people", "amounts"] as const) {
-    test(`the ${action} quick action returns a cited list`, async ({ caseFile, answer }) => {
+    test(`the ${action} quick action returns a list, each item citing the page of its fact`, async ({ caseFile, answer }) => {
       await caseFile.runQuickAction(action);
 
       await answer.waitUntilDone();
-      expect(await answer.statements.count()).toBeGreaterThan(2);
+      // The fake extractor records facts on every page; the fake model cites the first two and adds an uncited line.
+      await expect(answer.statements).toHaveCount(2);
       for (const statement of await answer.statements.all()) {
         await expect(statement.locator('[id^="citation-"]').first()).toBeVisible();
       }
+      for (const label of await answer.citationLabels()) expect(label).toMatch(/^p\. [1-3] · fls\. [1-3]$/);
     });
   }
 });

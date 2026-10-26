@@ -36,6 +36,9 @@ const NEXT_STATUSES: Record<CaseFileStatus, readonly CaseFileStatus[]> = {
   deleting: [],
 };
 
+/** The statuses startDeleting accepts: the moves to deleting in NEXT_STATUSES, and deleting itself. */
+const DELETABLE: readonly CaseFileStatus[] = ["uploading", "ready", "failed", "deleting"];
+
 /** The statuses ingestion moves a case file through, in order. */
 const INGESTION_PATH: readonly CaseFileStatus[] = ["queued", "processing", "mapping", "ready"];
 
@@ -148,8 +151,14 @@ export class CaseFile {
     this.props.error = reason;
   }
 
+  /** Does nothing on a case file already deleting, so a remove that stopped part way can run again. */
   startDeleting() {
-    this.moveTo("deleting");
+    if (this.props.status !== "deleting") this.moveTo("deleting");
+  }
+
+  /** Whether startDeleting may run: anywhere but while ingestion reads the case file. */
+  get deletable(): boolean {
+    return DELETABLE.includes(this.props.status);
   }
 
   /** Whether the case file is still on its way to ready or failed. */

@@ -1,9 +1,9 @@
 import type { Metering } from "../metering";
-import type { CitingModel, Embedder, Reranker, Source, UnitOfWork } from "../ports";
-import { NotFound, NotImplemented, PageRange, QuestionId } from "../shared";
+import type { CitingModel, Embedder, FactDraft, Reranker, Source, UnitOfWork } from "../ports";
+import { NotFound, PageRange, QuestionId } from "../shared";
 import type { UnreadPages } from "../case-files";
 import type { Block } from "../ingestion";
-import type { Box, CaseFileId, CaseFileStatus, LawyerId, PageSource, PecaId, QuickAction } from "../shared";
+import type { Box, CaseFileId, CaseFileStatus, FactKind, LawyerId, PageSource, PecaId, QuickAction } from "../shared";
 import { RankFusion } from "./rank-fusion";
 import { StatementBuilder } from "./statements";
 import type { FoundPassage, ReadPassage } from "./statements";
@@ -63,12 +63,17 @@ function isCitable(page: PecaPage) {
   return page.source === "digital" && page.blocks.length > 0;
 }
 
-/** A question and its answer, as the Answering repository stores it. Ticket 11 adds the quick actions. */
+/** A fact recorded at ingestion, with the folha of its page, as a quick action reads it. */
+export type PageFact = FactDraft & { folha: string | null };
+
+/** A question and its answer, as the Answering repository stores it. */
 export type QuestionRecord = {
   id: QuestionId;
   caseFileId: CaseFileId;
   lawyer: LawyerId;
   scope: Scope;
+  /** Set for a quick action, whose scope is the whole case file. */
+  quickAction: QuickAction | null;
   text: string;
   answer: Statement[];
   dropped: number;
@@ -92,6 +97,8 @@ export interface AnsweringRepository {
   pecaSize(caseFileId: CaseFileId, pecaId: PecaId): Promise<{ chars: number } | null>;
   /** The pages of the peça's page range, in page order. Empty when the case file has no such peça. */
   pecaPages(caseFileId: CaseFileId, pecaId: PecaId): Promise<PecaPage[]>;
+  /** The case file's facts of these kinds, in page order, and by value on one page. */
+  facts(caseFileId: CaseFileId, kinds: readonly FactKind[]): Promise<PageFact[]>;
   saveQuestion(question: QuestionRecord): Promise<void>;
 }
 
@@ -122,6 +129,25 @@ export const PECA_SUMMARY_TEXT = "Resumo da peça";
 export const PECA_SUMMARY_PROMPT =
   "Resuma esta peça em poucos parágrafos curtos: quem a apresenta, o que pede ou decide, os fundamentos e as conclusões. Escreva cada parágrafo em uma única linha.";
 
+/** What each quick action reads, what the lawyer sees and the question saves, and what the model is asked (prd-mvp.md, question types). */
+export const QUICK_ACTIONS: Record<QuickAction, { kinds: readonly FactKind[]; text: string; prompt: string }> = {
+  timeline: {
+    kinds: ["date", "event"],
+    text: "Linha do tempo",
+    prompt: "Liste em ordem cronológica todas as datas e todos os acontecimentos dos autos, um por linha, cada um com a sua data quando houver.",
+  },
+  people: {
+    kinds: ["person", "role"],
+    text: "Pessoas",
+    prompt: "Liste todas as pessoas envolvidas nos autos, uma por linha, cada uma com o seu papel no processo quando houver.",
+  },
+  amounts: {
+    kinds: ["amount"],
+    text: "Valores",
+    prompt: "Liste todos os valores em dinheiro dos autos, um por linha, cada um com o que ele representa.",
+  },
+};
+
 const ANSWER_FORM = [
   "Write in Brazilian Portuguese. Write one statement per line: one claim, supported by the sources it cites.",
   "Write no headings, no introduction and no closing remark. If the sources do not answer the question, write nothing.",
@@ -140,14 +166,28 @@ const PECA_INSTRUCTIONS = [
   ...ANSWER_FORM,
 ].join("\n");
 
+// The same for every quick action; the prompt says which list to write.
+const FACT_INSTRUCTIONS = [
+  "You write a complete list for a Brazilian lawyer about one case file (autos processuais), using only the sources given.",
+  "Each source is one fact recorded from one page of the case file: the fact as written, its normalized form in parentheses when it has one, and what it is about. Its title names the page and, when there is one, the folha.",
+  "Leave out no source that fits the list. When several sources state the same fact, write it once and cite them all.",
+  ...ANSWER_FORM,
+].join("\n");
+
 /**
  * What the model reads for a question: the passages, the instructions that describe them, and
  * whether to cache them. `prompt` is what the model is asked: the lawyer's text, or a preset's.
  */
 type Reading = { instructions: string; passages: ReadPassage[]; cacheSources: boolean; prompt: string; unreadPages: UnreadPages };
 
-/** A question checked and ready to answer: what it is, what the model is asked, and the peça pages it reads, if any. */
-type Prepared = { question: ScopedQuestion; prompt: string; pages: PecaPage[] | null };
+/** A question as Answering saves it. */
+type AskedQuestion = ScopedQuestion & { quickAction: QuickAction | null };
+
+/** What a question reads: passages that search finds, the pages of its peça, or the facts of a quick action. */
+type Material = { from: "search" } | { from: "peca"; pages: PecaPage[] } | { from: "facts"; facts: PageFact[] };
+
+/** A question checked and ready to answer: what it is, what the model is asked, and what it reads. */
+type Prepared = { question: AskedQuestion; prompt: string; material: Material };
 
 /**
  * Answers a lawyer's question about one case file. Statements stream one at a time,
@@ -174,8 +214,9 @@ export class Answering {
    * digital pages with no text). Otherwise yields each cited statement as soon as its line ends,
    * saves the question, and yields `done` last.
    * When the model declines part way, yields `refused: "declined"` last and saves nothing. Throws
-   * NotFound if the lawyer doesn't own the case file, or the case file has no such peça. Ticket
-   * 11 adds the quick actions; until then they throw NotImplemented.
+   * NotFound if the lawyer doesn't own the case file, or the case file has no such peça.
+   * A quick action reads the facts of its kinds instead of searching, and a case file with none
+   * gets an answer with no statement.
    */
   async *ask(lawyer: LawyerId, input: QuestionInput): AsyncIterable<AnswerEvent> {
     // One run, so the peça is read from the case file whose owner was just checked.
@@ -184,11 +225,15 @@ export class Answering {
       yield { type: "refused", reason: prepared };
       return;
     }
-    const { question, prompt, pages } = prepared;
-    const reading = pages
-      ? this.pecaReading(pages, prompt)
-      : { instructions: WHOLE_FILE_INSTRUCTIONS, passages: await this.searchPassages(lawyer, question.caseFileId, prompt), cacheSources: false, prompt, unreadPages: [] };
-    yield* this.answer(lawyer, question, reading);
+    const { question, prompt, material } = prepared;
+    yield* this.answer(lawyer, question, await this.reading(lawyer, question.caseFileId, prompt, material));
+  }
+
+  private async reading(lawyer: LawyerId, caseFileId: CaseFileId, prompt: string, material: Material): Promise<Reading> {
+    if (material.from === "peca") return this.pecaReading(material.pages, prompt);
+    if (material.from === "facts") return this.factReading(material.facts, prompt);
+    const passages = await this.searchPassages(lawyer, caseFileId, prompt);
+    return { instructions: WHOLE_FILE_INSTRUCTIONS, passages, cacheSources: false, prompt, unreadPages: [] };
   }
 
   /** Checks the question, and reads the peça's pages when it is about one peça. */
@@ -197,15 +242,20 @@ export class Answering {
     const status = await repo.caseFileStatus(lawyer, caseFileId);
     // Ownership first, so another lawyer's case file is NotFound whatever the scope.
     if (status === null) throw new NotFound(`Case file ${caseFileId} not found.`);
-    if ("quickAction" in input) throw new NotImplemented("Answering.ask for a quick action");
     if (status !== "ready") return "not-ready";
 
+    if ("quickAction" in input) {
+      const { kinds, text, prompt } = QUICK_ACTIONS[input.quickAction];
+      const question = { caseFileId, scope: { kind: "whole-file" } as const, quickAction: input.quickAction, text };
+      return { question, prompt, material: { from: "facts", facts: await repo.facts(caseFileId, kinds) } };
+    }
     const summary = "summarize" in input;
-    const question: ScopedQuestion = summary ? { caseFileId, scope: { kind: "peca", pecaId: input.summarize }, text: PECA_SUMMARY_TEXT } : input;
+    const scoped: ScopedQuestion = summary ? { caseFileId, scope: { kind: "peca", pecaId: input.summarize }, text: PECA_SUMMARY_TEXT } : input;
+    const question = { ...scoped, quickAction: null };
     const prompt = summary ? PECA_SUMMARY_PROMPT : input.text;
-    if (question.scope.kind === "whole-file") return { question, prompt, pages: null };
+    if (question.scope.kind === "whole-file") return { question, prompt, material: { from: "search" } };
     const pages = await this.pecaPages(repo, caseFileId, question.scope.pecaId);
-    return typeof pages === "string" ? pages : { question, prompt, pages };
+    return typeof pages === "string" ? pages : { question, prompt, material: { from: "peca", pages } };
   }
 
   /**
@@ -233,9 +283,21 @@ export class Answering {
     return { instructions: PECA_INSTRUCTIONS, passages, cacheSources: true, prompt, unreadPages };
   }
 
+  /**
+   * One passage per fact, of one block, so a citation of it names its page. A fact has no boxes:
+   * the viewer opens its page with nothing marked.
+   */
+  private factReading(facts: PageFact[], prompt: string): Reading {
+    const passages = facts.map(({ value, normalizedValue, context, page, folha }, index) => {
+      const normalized = normalizedValue && normalizedValue !== value ? ` (${normalizedValue})` : "";
+      return { id: `fact-${index}`, page, folha, blocks: [{ text: `${value}${normalized}, ${context}`, boxes: [] }] };
+    });
+    return { instructions: FACT_INSTRUCTIONS, passages, cacheSources: false, prompt, unreadPages: [] };
+  }
+
   /** Streams the statements of the answer, then saves the question. */
-  private async *answer(lawyer: LawyerId, question: ScopedQuestion, reading: Reading): AsyncIterable<AnswerEvent> {
-    const { caseFileId, scope, text } = question;
+  private async *answer(lawyer: LawyerId, question: AskedQuestion, reading: Reading): AsyncIterable<AnswerEvent> {
+    const { caseFileId, scope, quickAction, text } = question;
     const builder = new StatementBuilder(new Map(reading.passages.map((passage) => [passage.id, passage])));
     const answer: Statement[] = [];
     for await (const statement of this.statements(lawyer, caseFileId, reading, builder)) {
@@ -248,7 +310,7 @@ export class Answering {
     }
 
     const id = QuestionId(crypto.randomUUID());
-    await this.uow.run((repos) => repos.answering.saveQuestion({ id, caseFileId, lawyer, scope, text, answer, dropped: builder.dropped }));
+    await this.uow.run((repos) => repos.answering.saveQuestion({ id, caseFileId, lawyer, scope, quickAction, text, answer, dropped: builder.dropped }));
     yield { type: "done", questionId: id, dropped: builder.dropped, unreadPages: reading.unreadPages };
   }
 

@@ -1,6 +1,6 @@
 import type { Metering } from "../metering";
 import type { FileStore, Jobs, UnitOfWork, UploadedPart } from "../ports";
-import { CaseFileId, NotFound, NotImplemented, QuotaExceeded } from "../shared";
+import { CaseFileId, NotFound, QuotaExceeded } from "../shared";
 import type { CaseFileStatus, LawyerId, PecaId, PecaType } from "../shared";
 import { CaseFile } from "./case-file";
 import type { UnreadPages } from "./case-file";
@@ -29,6 +29,8 @@ export type CaseFileSummary = {
   status: CaseFileStatus;
   /** True while the case file is on its way to ready or failed, so the page should refresh. */
   ingesting: boolean;
+  /** False while ingestion reads it, when remove throws InvalidStatus. */
+  deletable: boolean;
   pageCount: number;
   pagesDone: number;
   createdAt: Date;
@@ -68,6 +70,11 @@ export interface CaseFileRepository {
   documentMapOf(id: CaseFileId): Promise<PecaView[]>;
   /** Inserts a new case file or updates the stored one. */
   save(caseFile: CaseFile): Promise<void>;
+  /**
+   * Deletes the case file and every row derived from it: ingestion ranges, pages, passages, peças,
+   * facts and questions. Its usage records stay, with no case file. Removing a missing one does nothing.
+   */
+  remove(id: CaseFileId): Promise<void>;
 }
 
 export type CaseFilesDeps = { uow: UnitOfWork; files: FileStore; jobs: Jobs; metering: Metering; now?: () => Date };
@@ -173,9 +180,24 @@ export class CaseFiles {
     return this.files.readUrl(storageKey, READ_URL_SECONDS);
   }
 
-  /** Deletes everything derived from the case file, then the PDF. Usage rows stay. */
-  async remove(_lawyer: LawyerId, _caseFileId: CaseFileId): Promise<void> {
-    throw new NotImplemented("CaseFiles.remove");
+  /**
+   * Marks the case file deleting, aborts its open upload and removes the stored PDF, then deletes it
+   * and every row derived from it. Usage records stay with no case file, and the pages charged stay
+   * charged. Throws InvalidStatus while ingestion reads it. A remove that fails part way leaves the
+   * case file deleting, and calling it again finishes the delete.
+   */
+  async remove(lawyer: LawyerId, caseFileId: CaseFileId): Promise<void> {
+    const { storageKey, uploadId } = await this.uow.run(async (repos) => {
+      const caseFile = await repos.caseFiles.find(lawyer, caseFileId, { lock: true });
+      if (!caseFile) throw new NotFound(`Case file ${caseFileId} not found.`);
+      caseFile.startDeleting();
+      await repos.caseFiles.save(caseFile);
+      return caseFile.snapshot();
+    });
+    // Storage comes after the commit and before the rows go, so a failure leaves a case file to retry (ADR-0007).
+    if (uploadId) await this.files.abortMultipart(storageKey, uploadId);
+    await this.files.remove(storageKey);
+    await this.uow.run((repos) => repos.caseFiles.remove(caseFileId));
   }
 
   /** The external calls come first, so the run holds only database work (ADR-0007). */
@@ -204,7 +226,7 @@ export class CaseFiles {
 
 function toSummary(caseFile: CaseFile): CaseFileSummary {
   const { id, name, status, pageCount, pagesDone, createdAt } = caseFile.snapshot();
-  return { id, name, status, ingesting: caseFile.ingesting, pageCount, pagesDone, createdAt };
+  return { id, name, status, ingesting: caseFile.ingesting, deletable: caseFile.deletable, pageCount, pagesDone, createdAt };
 }
 
 function toView(caseFile: CaseFile, derived: Pick<CaseFileView, "documentMap" | "folhas">): CaseFileView {

@@ -1,11 +1,10 @@
 import { expect, test, uniqueName } from "../../support/fixtures";
 
-// CaseFiles.remove arrives with ticket 12.
-test.fixme();
-
-test("deleting a case file asks for confirmation, then removes it from the list", async ({ caseFileList, page }) => {
+test("deleting a case file asks for confirmation, then removes it from the list", async ({ caseFileList, caseFile, page }) => {
   await caseFileList.goto();
   const caseFileId = await caseFileList.uploadAndOpen(uniqueName("Autos para excluir"));
+  // A case file can't be deleted while ingestion reads it.
+  await caseFile.expectReady();
   await caseFileList.goto();
 
   await caseFileList.startDeleting(caseFileId);

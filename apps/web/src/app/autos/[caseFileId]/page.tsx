@@ -43,7 +43,7 @@ export default async function CaseFilePage(props: PageProps<"/autos/[caseFileId]
           <p className="text-xs tabular-nums text-subtle">{formatNumber(caseFile.pageCount)} páginas</p>
         </div>
         <StatusBadge id="case-file-status" status={caseFile.status} pagesDone={caseFile.pagesDone} pageCount={caseFile.pageCount} />
-        <DeleteCaseFile caseFileId={caseFile.id} name={caseFile.name} returnToList />
+        {caseFile.deletable && <DeleteCaseFile caseFileId={caseFile.id} name={caseFile.name} returnToList />}
       </div>
       {ready && (caseFile.allPagesScanned ? <NoTextNotice /> : <UnreadPages ranges={caseFile.unreadPages} count={caseFile.unreadPageCount} />)}
       {ready ? (

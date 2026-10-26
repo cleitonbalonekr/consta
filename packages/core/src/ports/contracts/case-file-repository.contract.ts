@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { CaseFile, FileSize, PageCount } from "../../case-files";
-import { CaseFileId } from "../../shared";
+import { CaseFileId, QuestionId } from "../../shared";
 import type { LawyerId } from "../../shared";
 import type { UnitOfWork } from "../unit-of-work";
 
@@ -106,6 +106,39 @@ export function caseFileRepositoryContract(setup: CaseFileRepositorySetup) {
 
       expect(await uow.run((repos) => repos.caseFiles.folhasOf(caseFile.id))).toEqual({ 1: "12", 3: "13-v" });
       expect(await uow.run((repos) => repos.caseFiles.folhasOf(CaseFileId(crypto.randomUUID())))).toEqual({});
+    });
+
+    it("removes a case file with every row derived from it, keeps its usage with no case file, and leaves others alone", async () => {
+      const { uow, newLawyer } = await setup();
+      const lawyer = await newLawyer();
+      const [caseFile, other] = [newCaseFile(lawyer), newCaseFile(lawyer)];
+      const page = { number: 1, folha: "2", source: "digital" as const, text: "Texto", blocks: [] };
+      const peca = { type: "sentenca" as const, title: "Sentença", date: null, firstPage: 1, lastPage: 1, summary: "Resumo." };
+      const fact = { kind: "amount" as const, value: "R$ 1,00", normalizedValue: "1.00", context: "valor", page: 1 };
+      const usage = { kind: "answer" as const, provider: "test", model: "test", units: 1, unit: "token" as const, costUsd: 1 };
+      await uow.run(async ({ caseFiles, ingestion, answering, metering }) => {
+        for (const saved of [caseFile, other]) {
+          await caseFiles.save(saved);
+          await ingestion.savePages(saved.id, [page], []);
+          await ingestion.replaceDocumentMap(saved.id, [peca], [fact]);
+          await metering.insertUsage(lawyer, saved.id, [usage]);
+        }
+        await answering.saveQuestion({ id: QuestionId(crypto.randomUUID()), caseFileId: caseFile.id, lawyer, scope: { kind: "whole-file" }, quickAction: null, text: "?", answer: [], dropped: 0 });
+      });
+
+      await uow.run((repos) => repos.caseFiles.remove(caseFile.id));
+      await uow.run((repos) => repos.caseFiles.remove(caseFile.id));
+
+      await uow.run(async ({ caseFiles, ingestion, answering, metering }) => {
+        expect(await caseFiles.findById(caseFile.id)).toBeNull();
+        expect(await ingestion.countPages(caseFile.id)).toBe(0);
+        expect(await caseFiles.documentMapOf(caseFile.id)).toEqual([]);
+        expect(await answering.facts(caseFile.id, ["amount"])).toEqual([]);
+        expect(await ingestion.countPages(other.id)).toBe(1);
+        expect(await answering.facts(other.id, ["amount"])).toHaveLength(1);
+        const costs = await metering.costsBetween(new Date(Date.now() - 60_000), new Date(Date.now() + 60_000));
+        expect(costs.filter((cost) => cost.lawyer === lawyer).map((cost) => cost.caseFileId).sort()).toEqual([other.id, null].sort());
+      });
     });
 
     it("lists only the lawyer's case files, newest first", async () => {

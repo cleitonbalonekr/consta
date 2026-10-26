@@ -15,9 +15,31 @@ const LAWSUIT: Array<{ type: PecaType; title: string }> = [
   { type: "acordao", title: "Acórdão" },
 ];
 
-/** Returns scripted peças and facts; by default, peças of two pages and no facts. */
+/** Returns scripted peças and facts; by default, peças of two pages and a fact of every kind on each page with text. */
 export class FakeMapExtractor implements MapExtractor {
-  constructor(private readonly script: Script = FakeMapExtractor.twoPagePecas) {}
+  constructor(private readonly script: Script = FakeMapExtractor.lawsuit) {}
+
+  /** The default: the peças of twoPagePecas and the facts of factsOnEachPage. */
+  static lawsuit(input: { pages: PageText[] }): { pecas: PecaDraft[]; facts: FactDraft[] } {
+    return { pecas: FakeMapExtractor.twoPagePecas(input).pecas, facts: FakeMapExtractor.factsOnEachPage(input) };
+  }
+
+  /** One fact of every kind on each page with text, named after its page, so fake mode answers quick actions. */
+  static factsOnEachPage({ pages }: { pages: PageText[] }): FactDraft[] {
+    return pages
+      .filter((page) => page.text.trim())
+      .flatMap(({ page }) => {
+        const day = String(((page - 1) % 28) + 1).padStart(2, "0");
+        const facts: Array<Omit<FactDraft, "page">> = [
+          { kind: "person", value: `Pessoa da página ${page}`, normalizedValue: null, context: "parte nos autos" },
+          { kind: "role", value: "Autora", normalizedValue: null, context: `papel da pessoa da página ${page}` },
+          { kind: "date", value: `${day}/03/2026`, normalizedValue: `2026-03-${day}`, context: `data de um ato da página ${page}` },
+          { kind: "amount", value: `R$ ${page}.000,00`, normalizedValue: `${page}000.00`, context: `valor pedido na página ${page}` },
+          { kind: "event", value: `Juntada da página ${page}`, normalizedValue: null, context: "ato do processo" },
+        ];
+        return facts.map((fact) => ({ ...fact, page }));
+      });
+  }
 
   /** Each window as peças of two pages, of the next type in LAWSUIT, so fake mode shows a document map. */
   static twoPagePecas({ pages }: { pages: PageText[] }): { pecas: PecaDraft[]; facts: FactDraft[] } {

@@ -5,7 +5,7 @@ import { fixturePdf, ingestionOn } from "../ingestion/testing";
 // eslint-disable-next-line no-restricted-imports
 import type { FixturePage } from "../ingestion/testing";
 import { FakeCitingModel, FakeEmbedder, FakeReranker } from "../ports/fakes";
-import type { CitingModel, Reranker, Source, UnitOfWork } from "../ports";
+import type { CitingModel, MapExtractor, Reranker, Source, UnitOfWork } from "../ports";
 import type { PecaView } from "../case-files";
 import type { CaseFileId, LawyerId } from "../shared";
 import { Answering } from "./index";
@@ -20,12 +20,12 @@ export function sourceOn(sources: Source[], page: number): Source {
 
 /**
  * Answering on the given unit of work, beside the modules that ingest its case files.
- * The default model is the FakeCitingModel's default script.
+ * The default model is the FakeCitingModel's default script, and the default map the FakeMapExtractor's.
  */
-export function answeringOn(uow: UnitOfWork, options: { model?: CitingModel; reranker?: Reranker } = {}) {
-  const { model = new FakeCitingModel(), reranker = new FakeReranker() } = options;
+export function answeringOn(uow: UnitOfWork, options: { model?: CitingModel; reranker?: Reranker; mapExtractor?: MapExtractor } = {}) {
+  const { model = new FakeCitingModel(), reranker = new FakeReranker(), mapExtractor } = options;
   const embedder = new FakeEmbedder();
-  const built = ingestionOn(uow, { embedder });
+  const built = ingestionOn(uow, { embedder, mapExtractor });
   const answering = new Answering({ uow, embedder, reranker, model, metering: built.metering });
 
   /** Uploads a fixture PDF and waits until ingestion ends, so the case file is ready. */

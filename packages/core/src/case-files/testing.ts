@@ -13,9 +13,8 @@ export async function pdfWithPages(pages: number): Promise<Uint8Array> {
   return pdf.save();
 }
 
-/** CaseFiles on the given unit of work, with the in-memory file store and a Jobs fake. */
-export function caseFilesOn(uow: UnitOfWork, jobs: Jobs = new RecordingJobs()) {
-  const files = new InMemoryFileStore();
+/** CaseFiles on the given unit of work, with an in-memory file store and a Jobs fake. */
+export function caseFilesOn(uow: UnitOfWork, jobs: Jobs = new RecordingJobs(), files = new InMemoryFileStore()) {
   const metering = new Metering({ uow });
   const caseFiles = new CaseFiles({ uow, files, jobs, metering });
 

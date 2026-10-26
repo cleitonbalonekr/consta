@@ -36,7 +36,7 @@ async function setup() {
     },
     questions: async (caseFileId: CaseFileId) => {
       const rows = await db.select().from(schema.question).where(eq(schema.question.caseFileId, caseFileId)).orderBy(asc(schema.question.createdAt));
-      return rows.map(({ text, scope, pecaId, answer, droppedStatements }) => ({ text, scope, pecaId, answer, dropped: droppedStatements }));
+      return rows.map(({ text, scope, quickAction, pecaId, answer, droppedStatements }) => ({ text, scope, quickAction, pecaId, answer, dropped: droppedStatements }));
     },
     usageRows: async () => {
       const rows = await db.select().from(schema.usageEvent).orderBy(desc(schema.usageEvent.units));
